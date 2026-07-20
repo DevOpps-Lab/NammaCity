@@ -1,0 +1,363 @@
+# CivicAgent
+
+A citizen-verified accountability ledger for civic defects.
+
+Photograph a pothole or broken drain. Agents identify the responsible ward and
+agencies, file against **all** plausibly-responsible bodies at once, run a clock
+against the authority's **own published** service standard, and escalate publicly
+when that standard is missed. **Only a citizen can close a report.**
+
+```bash
+npm run dev          # http://localhost:3000
+npm run build
+npx tsx scripts/verify-guards.ts   # adversarial checks on both refusal paths
+node scripts/verify-rls.mjs        # two-account check that only the owner can close
+```
+
+## The three tabs
+
+**Report** — photograph a defect. It is redacted on-device, the severity is
+measured, the category is identified, your ward is resolved and the responsible
+agencies are looked up — all *before* you commit. You see what it concluded and
+tap once.
+
+**My Reports** — your ledger, with SLA countdowns, the correspondence thread with
+each authority, and a first-class *Awaiting you* filter for reports an authority
+claims to have fixed. That filter exists because `claims_done` is the one state
+where the loop cannot close without a human.
+
+**Map** — every citizen's reports, city-wide. You can open anyone's; only the
+citizen who filed one can close it.
+
+## Setup
+
+Accounts and reports live in Supabase Postgres, so the app needs a project
+before it will run.
+
+1. **Create a Supabase project** (free tier is enough).
+
+2. **Apply the migrations** — paste each file into the SQL editor in order:
+
+   ```
+   supabase/migrations/0001_init.sql    # tables, RLS, SLA sweep, triggers
+   supabase/migrations/0002_storage.sql # redacted-photo bucket + policies
+   supabase/migrations/0003_oauth_profiles.sql              # Google name/avatar
+   supabase/migrations/0004_category_correspondence_publicmap.sql
+   ```
+
+3. **Turn off email confirmation** for the demo:
+   Authentication → Sign In / Providers → Email → **Confirm email: off**.
+   Left on, Supabase's built-in SMTP rate-limits to a couple of mails an hour,
+   which will strand you mid-demo. The signup form handles both configurations —
+   with confirmation on it tells you to check your inbox instead of hanging.
+
+4. **Wire the env**:
+
+   ```bash
+   cp .env.example .env.local   # then fill in URL + anon key from Settings -> API
+   ```
+
+5. `npm run dev`, create an account, and the map arrives pre-seeded with the
+   Chennai caseload described under [Demo](#demo).
+
+### Google sign-in (optional)
+
+Email/password works without this. To enable the **Continue with Google**
+button:
+
+1. **Google Cloud Console** → APIs & Services → Credentials →
+   *Create OAuth client ID* → **Web application**.
+2. Authorised redirect URI — this is your **Supabase** callback, not your app's:
+
+   ```
+   https://<project-ref>.supabase.co/auth/v1/callback
+   ```
+
+3. Copy the client ID and secret into Supabase → Authentication →
+   Sign In / Providers → **Google** → enable, paste, save.
+4. Confirm Authentication → URL Configuration lists your app origin
+   (`http://localhost:3000/**`) in the redirect allow list.
+
+The button self-diagnoses: with the provider disabled it says so and points at
+the email form rather than failing silently.
+
+Google returns `full_name` and `picture` where our own form sends
+`display_name`, so `0003_oauth_profiles.sql` coalesces across both shapes —
+without it an OAuth user lands with a blank name and the UI falls back to the
+email local-part.
+
+> The anon key is meant to reach the browser. Every table is owner-scoped by RLS,
+> so on its own it reads nothing.
+
+## Why this shape
+
+Filing a complaint is a solved, commoditised feature — India has at least seven
+government apps that do it. The problem is what happens next:
+
+| System | Reported | Resolved | Rate |
+|---|---|---|---|
+| BBMP Sahaaya (Bengaluru), 1 May–6 Jun 2019 | 11,785 | **6** | **~0.05%** |
+| FixMyStreet UK (independently measured) | — | — | ~34% |
+| Swachhata / MCD 311 (**self**-reported) | — | — | 93–95% |
+
+UK councils are not three times better than Indian ULBs. The difference is **who
+marks the ticket closed**. Indian systems let the accused department close its
+own ticket — Chennai has documented complaints closed using photos taken at a
+different location, and BBMP's Sahaaya closed 1,348 complaints for "unknown
+reasons."
+
+So the contribution here is not filing. It is **making closure verifiable by the
+citizen rather than declarable by the authority**, and attaching consequence to
+silence.
+
+## Architecture
+
+### Tiered authority resolver (`src/lib/routing.ts`)
+
+Converting a GPS coordinate to "who is responsible" is the actual hard problem.
+There is no national API: LGD has every ward's code but no geometry, Survey of
+India stops at taluk, Bhuvan publishes no municipal wards, and open ward polygons
+exist for roughly 28 of India's ~4,800 urban local bodies.
+
+| Tier | Source | Confidence | Measured |
+|---|---|---|---|
+| 1 | Local GCC ward polygons (200 wards, 16 zones) | high | 1–13 ms |
+| 2 | OSM via Nominatim reverse geocode | medium/low | ~300 ms |
+| 4 | Refuse and ask for confirmation | unresolved | — |
+
+Every result reports **which tier answered**. A system that says "municipality
+only, low confidence, please confirm" is more trustworthy than one that silently
+guesses a ward.
+
+> The originally specced Tier 1 — the GCC ArcGIS REST service — is **dead**
+> (HTTP 500, probed 18 Jul 2026), and the Esri Living Atlas ward item is
+> inaccessible. Tier 1 is now a local static dataset, which is also strictly more
+> reliable: it cannot fail on venue wifi. Overpass was dropped for Nominatim
+> after Overpass returned 504 under load.
+
+### Filing wide on purpose
+
+Where jurisdiction is ambiguous — storm-water drain vs. sewer is the classic
+Chennai case — we file to **every** plausible agency rather than guessing.
+Bombay HC, *High Court on its own motion v. State of Maharashtra* (13 Oct 2025)
+refuses to let agencies create "no-man's zones" of responsibility: where they
+dispute who owns a defect, they are ordered to pay equally.
+
+A jurisdiction transfer is **not** a closure. The clock keeps running.
+
+### The two refusals
+
+Both are verified by `scripts/verify-guards.ts`.
+
+**1. Verification never auto-closes** (`src/lib/verification.ts`)
+
+Published pothole detection tops out around 53% mAP@50 — potholes are the
+*weakest* class in the standard RDD2022 benchmark. So when the detector sees
+nothing in an after-photo, a large fraction of the time that is the model
+failing, not the road being fixed. Auto-closing on that signal would
+algorithmically reproduce the exact fraud this product exists to stop.
+
+`evaluateAfterPhoto()` returns evidence and a recommendation. `autoClose` is
+typed as literal `false`. The only path to `verified_fixed` is an explicit human
+tap.
+
+**2. The escalation composer strips unsafe content** (`src/lib/escalation.ts`)
+
+We post from one official account, so we are the publisher with no intermediary
+safe harbour. Consequently:
+
+- **Facts only** — complaint ID, filing date, elapsed days, the authority's own
+  published standard. No characterisation.
+- **Institutions, never individuals.** *R. Rajagopal v. State of TN* (1994) holds
+  the State cannot sue for defamation; naming an officer forfeits that shield.
+- **No corruption/dishonesty allegations** — outside the BNS s.356 Exception 2
+  public-conduct shield, and where officials actually file complaints.
+- **Hard political firewall.** In the Agra case a man was arrested over a pothole
+  video that *also* carried a remark about the Chief Minister. The civic fact was
+  never the trigger. Enforced by a deterministic blocklist, independent of any
+  model call.
+- **No links.** X charges $0.015/post but **$0.20 with a link** — 13×. Images
+  attach natively.
+- **Template rotation**, because X forbids "substantially similar content" and
+  account termination would end the product faster than any lawsuit.
+
+### Honest metrics
+
+The header publishes an independently computable **verified** fix rate —
+authority claims explicitly do not count. The map is labelled "reports," not
+"problems," because reporting volume is a biased proxy for actual conditions
+(Mumbai 2025: Powai 1,802 pothole complaints vs. Colaba under 100; the same
+skew is documented across 20M NYC 311 requests, the UK, and Brussels).
+
+### Auto-identification, and why it is not silent (`src/app/api/classify`)
+
+`detect.ts` measures severity from pixels and refuses to infer the category —
+colour statistics cannot separate garbage from sandbags, and filing to the wrong
+agency on that basis would be the same confident guessing the tiered resolver
+exists to avoid. A vision model can do what the heuristic could not, so the
+Report tab asks one. Three things keep that from becoming a guess:
+
+- It runs **server-side** — the key never reaches the browser, and the endpoint
+  sits behind the auth proxy so it cannot be used to burn quota anonymously.
+- It returns a **confidence**, and the UI gates on it. The identified category is
+  always on screen with a one-tap Change; below the floor the picker is required.
+- With no key, or offline, `/api/classify` reports itself **unconfigured** and
+  the citizen picks the category. Degrading to a question is honest; degrading to
+  a weak guess is not.
+
+Set `GEMINI_API_KEY` from [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+— the free tier allows roughly 1,500 classifications a day with no card. The
+provider is isolated to that one route: the client, the confidence gating and the
+fallback all consume a plain `{category, confidence, reason}`, so swapping models
+or vendors touches nothing else.
+
+The provenance travels: `category_source` and `category_confidence` are stored on
+the report and stated in the complaint body, because an authority receiving an
+auto-classified complaint is entitled to know that a human confirmed it.
+
+### Accounts and the ledger (`supabase/migrations/`, `src/lib/db.ts`)
+
+Postgres is the source of truth; Supabase Auth issues the session. Three
+decisions are worth calling out.
+
+**The refusal is an RLS policy, not a UI convention.** Reports are owner-scoped
+for select, insert, update and delete. "Only the citizen who filed it can close
+it" is therefore enforced by the database — bypassing the UI entirely still
+reads and writes nothing.
+
+**The primary key is `(user_id, id)`, not `id`.** Report references are
+human-facing (`CA-4520`) and the seeded caseload uses fixed ones so the scripted
+demo beats stay reproducible. A global text key would collide on every seed row
+the moment a second person signed up.
+
+**Lifecycle times are `bigint` epoch-ms, not `timestamptz`.** The demo clock
+compresses an hour into a second, so "now" is a client-controlled quantity.
+`civic_sweep(p_now)` takes that instant as a parameter: the client stays the
+authority on what time it is, and Postgres stays the authority on what that time
+*means*. `verified_fixed` is unreachable from inside the sweep by construction —
+the same refusal as the client, at the other end of the wire.
+
+Each new account is seeded with its own copy of the caseload, because a fresh
+map with nothing on it demonstrates nothing, and seeds owned by someone else
+would be unactionable under the policies above.
+
+**The map is community-wide; closure is not.** `0004` opens SELECT to every
+signed-in citizen while INSERT/UPDATE/DELETE stay owner-scoped — so anyone can
+watch a report, and only the person who filed it can close it. That is enforced
+by RLS, not by hiding a button; `scripts/verify-rls.mjs` proves it by attempting
+the close, escalate and delete directly against PostgREST as a second account.
+
+The public read excludes other people's **seeds**. Every account is seeded with
+the same fixed ids, so a plain `using (true)` would stack one copy of `CA-4520`
+per account on the map.
+
+### Capture pipeline (`src/lib/imaging.ts`, `src/lib/detect.ts`)
+
+Photo → **on-device redaction** → analysis → confirm → file. Nothing is uploaded
+before redaction, which is the point: the cheapest way to be safe with
+bystanders is for identifiable data to never reach our systems.
+
+- Faces auto-redacted via the browser's native `FaceDetector` where available;
+  **tap-to-blur** everywhere else. When the browser can't detect, the UI says so
+  rather than implying the photo is clean.
+- Redaction is **pixelation, not a reversible blur**.
+- Canvas re-encode **strips EXIF** as a side effect. Geolocation is read live
+  instead — browsers and messaging apps strip EXIF GPS inconsistently.
+- Severity is computed from real pixel statistics (luminance, contrast,
+  saturation, dark-region geometry), with explicit penalties for the documented
+  confusers: low contrast, glare/wet road, shadow-dominated frames, and
+  near-rectangular regions that read as manhole covers or patches.
+
+> **Honest labelling:** `detect.ts` is a classical CV heuristic, **not** a trained
+> detector — it computes from real pixels and varies per photo, but it is a
+> stand-in for the RDD2022/YOLOv8 model a production build would ship, and the UI
+> says so on screen. Confidence is capped at 0.78 because nothing in this field
+> earns more on this class.
+
+### Correspondence handler (`src/lib/correspondence.ts`)
+
+Classifies inbound replies into acknowledged / query / jurisdiction-transfer /
+claims-done / rejected. Two rules carry the design:
+
+- **A transfer is not a resolution.** It re-files to the named agency and the
+  original clock keeps running. The Standing Committee on Public Grievances
+  (Dec 2021) found grievances routinely "disposed" by telling the citizen to go
+  elsewhere; Mumbai bounced 727 of 10,361 pothole complaints to other agencies.
+- **"Done" is not done.** `claims_done` is a distinct state that only a citizen
+  with an after-photo can move to `verified_fixed`.
+
+### Deduplication (`src/lib/dedup.ts`)
+
+Geo proximity first (per-category radius, following FixMyStreet), perceptual
+hash to confirm. Deliberately asymmetric: a hash **hit** is strong evidence of
+the same defect; a hash **miss** is not evidence of a different one, because
+average hashes are not robust to viewpoint change and two people photograph the
+same pothole from different angles. Phone GPS at 3–5m is also worse than the
+2.5m threshold used in the video literature, so nothing merges silently — the
+user is asked.
+
+Closed reports are never merged into: a defect recurring at the same spot is a
+new report, and recurrence is itself signal (DARPG logged 5 lakh recurring
+grievances 2022–25).
+
+### Sandboxed outbox (`src/lib/outbox.ts`)
+
+Complaints, auto-replies, RTI requests and escalation posts are composed in
+full — correct recipient, cited service standard, real body — then routed to a
+sink. The Outbox panel shows **intended recipient vs. where it actually went**,
+and flags unverified addresses.
+
+## Demo
+
+- **Demo clock** (header) compresses time so 1 second = 1 hour. `CA-4520` is
+  seeded at 47h59m into a 48h SLA — flip the clock and it breaches, escalates,
+  and posts live.
+- **Agent Trace** (right panel) streams triage → routing → authority → SLA →
+  filing as it happens.
+- **Routing reveal**: report from Chennai for a Tier 1 ward hit; report from
+  elsewhere to watch it degrade honestly.
+- **Refusal 1**: open a `claims_done` pin → *Submit an after-photo* → choose
+  "Still there, detector missed it."
+- **Refusal 2**: on an overdue report → *Escalate publicly* → type
+  "the corrupt minister ignores our ward."
+- **The dodge**: open any report → *Simulate a reply* → "Jurisdiction transfer"
+  and watch the clock refuse to reset.
+- **Dedup**: file a second report within ~20m of an existing pothole.
+- **Outbox**: shows the actual composed complaint, with intended vs. actual
+  recipient.
+- **Tamil toggle** in the header.
+
+State persists to Postgres against your account, so a refresh — or a different
+device — doesn't lose anything. **Reset my ledger** in the account menu wipes
+your reports and restores the seeded caseload between runs.
+
+## Sandboxing
+
+Nothing is sent to real government addresses or municipal handles. Filing goes to
+a demo inbox (`DEMO_INBOX`); escalation posts to our own demo account about
+seeded data. Unverified contact addresses are flagged `verified: false` in
+`src/lib/authorities.ts` and never presented as real.
+
+## Stack
+
+Next.js 16.2.10 (Turbopack) · React 19 · Supabase (Postgres, Auth, Storage) ·
+MapLibre GL · Turf · Tailwind v4.
+
+> Auth runs through `src/proxy.ts`. Next 16 renamed Middleware to Proxy; the
+> file must sit at `src/proxy.ts`, beside `app/`. It refreshes the Supabase
+> session cookie and does an *optimistic* redirect — the real authorisation
+> boundary is RLS, not that file.
+
+> PWA is framework-native (`src/app/manifest.ts` + hand-written `public/sw.js`).
+> **Do not add `next-pwa` or Serwist** — Next 16 defaults to Turbopack and fails
+> the build outright when a webpack config is present.
+
+## Not built (deliberately)
+
+Outbound AI voice calls. The cost model is ₹8–20/call against ~₹1/report, and
+TCCCPR (as amended 12 Feb 2025) requires DLT registration and 1600-series
+numbering with no AI exemption, while MeitY's IT Amendment Rules 2026 require
+provenance labelling on synthetic audio. Beyond legality: one viral clip of a bot
+badgering a junior engineer would end the product.
+#   N a m m a C i t y  
+ 
