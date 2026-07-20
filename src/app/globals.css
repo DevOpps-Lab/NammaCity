@@ -1,0 +1,559 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   DESIGN TOKENS
+
+   Semantic names, not raw hex in components — so the palette can be swapped
+   here without touching a single component.
+
+   Light theme. The accent/status colours are deliberately one step DARKER than
+   their dark-theme counterparts (600-level rather than 500): a colour that
+   reads well as bright text on near-black fails 4.5:1 as text on white.
+--------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-2: #f1f3f7;
+  --surface-3: #e4e8ef;
+  --border: #dde2ea;
+  --border-strong: #c3cbd8;
+
+  --text: #0f1620;
+  --text-dim: #5a6675;
+  /* #8a94a6 (the direct light-theme analogue) is ~3.3:1 on white — fails AA.
+     --text-faint is used for 9-10px uppercase micro-labels, which is exactly
+     where contrast can least afford to be borderline. */
+  --text-faint: #6b7387;
+
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  /* Text/icon colour that sits ON a filled accent/danger/success button. The
+     dark theme used `text-black` for this because its fills were bright; on
+     light the fills are dark, so it inverts. */
+  --on-accent: #ffffff;
+  --success: #059669;
+  --danger: #dc2626;
+  --warning: #d97706;
+  --violet: #7c3aed;
+
+  /* Map pin chrome. On dark these were a white halo punched out of the
+     basemap; on a pale basemap the pin needs a dark hairline instead, or it
+     dissolves into the tiles. */
+  --pin-ring: rgba(255, 255, 255, 0.95);
+  --pin-ring-outline: rgba(15, 22, 32, 0.28);
+  --pin-label: #ffffff;
+
+  /* Overlay tints, so hover states and scrims aren't hardcoded per component. */
+  --hover-overlay: rgba(15, 22, 32, 0.05);
+  --scrim: rgba(15, 22, 32, 0.42);
+
+  /* Layered z-index scale — no ad-hoc values in components. */
+  --z-map: 0;
+  --z-overlay: 10;
+  --z-panel: 20;
+  --z-sheet: 30;
+  --z-modal: 40;
+  --z-toast: 50;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface2: var(--surface-2);
+  --color-surface3: var(--surface-3);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-dim: var(--text-dim);
+  --color-faint: var(--text-faint);
+  --color-accent: var(--accent);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-violet: var(--violet);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* Full-height chain. Every ancestor needs an explicit height or the map
+   container collapses to 0 and MapLibre renders nothing. */
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+/* Never let the page itself scroll — panes scroll internally. */
+#app-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+}
+
+/* ---------------------------------------------------------------------------
+   iOS SAFE AREAS
+
+   The viewport is `viewportFit: cover` with a black-translucent status bar, so
+   content deliberately extends under the Dynamic Island and the home indicator.
+   That is the right call for a full-bleed map — but every piece of CHROME
+   floating over that map has to be inset back out again, or the header sits
+   under the clock and the primary action sits under the home bar.
+
+   Insets are applied to the chrome, not to #app-root, so the map itself still
+   runs edge to edge. `env()` resolves to 0px on every non-notched device, so
+   these are inert on desktop and Android.
+--------------------------------------------------------------------------- */
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Additive: --pb carries the design's own padding so this composes with it
+   instead of replacing it. A bare `pb-3 pb-safe` would just fight over the
+   same property and the intended gap would silently vanish. */
+.pb-safe {
+  padding-bottom: calc(var(--pb, 0px) + env(safe-area-inset-bottom, 0px));
+}
+
+.px-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* For absolutely-positioned floating controls: keeps the design's own gap and
+   adds the inset on top. Set --gap to match the intended spacing. */
+.bottom-safe {
+  bottom: calc(var(--gap, 1.25rem) + env(safe-area-inset-bottom, 0px));
+}
+
+.right-safe {
+  right: calc(var(--gap-x, 1rem) + env(safe-area-inset-right, 0px));
+}
+
+/* ---------------------------------------------------------------------------
+   MAP PINS
+
+   The visual grammar carries the product thesis:
+     solid fill   = a state someone can stand behind
+     hollow/dash  = the authority CLAIMS it's done; nobody verified it
+
+   Indian civic apps self-report 93-95% resolution; independently measured
+   FixMyStreet reports ~34%. Drawing "claimed" the same as "verified" is the
+   exact lie this product refuses, so it must read at a glance.
+--------------------------------------------------------------------------- */
+.pin {
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  position: relative;
+  /* 44px minimum touch target without changing visual size. */
+  box-sizing: content-box;
+  transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.pin::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+}
+
+.pin--solid::after {
+  background: var(--pin);
+  border: 2.5px solid var(--pin-ring);
+  /* Hairline outline instead of a heavy drop shadow — on pale tiles the shadow
+     reads as smudge, but without SOME separation the white ring disappears. */
+  box-shadow:
+    0 0 0 1px var(--pin-ring-outline),
+    0 1px 3px rgba(15, 22, 32, 0.22);
+}
+
+/* HOLLOW = the authority CLAIMS it's fixed and nobody has verified it.
+   The fill is raised from 18% to 30% and the dashed stroke thickened: at 18%
+   over a white basemap this pin was effectively invisible, which would have
+   quietly erased the claimed-vs-verified distinction — the one thing this
+   product most needs to show at a glance. */
+.pin--hollow::after {
+  background: color-mix(in srgb, var(--pin) 30%, #ffffff);
+  border: 2.5px dashed var(--pin);
+  box-shadow:
+    0 0 0 1px var(--pin-ring-outline),
+    0 1px 3px rgba(15, 22, 32, 0.18);
+}
+
+/* Expand the hit area past the visual bounds. */
+.pin::before {
+  content: "";
+  position: absolute;
+  inset: -12px;
+  border-radius: 9999px;
+}
+
+.pin:hover {
+  transform: scale(1.2);
+  z-index: 2;
+}
+
+.pin--selected {
+  transform: scale(1.35);
+  z-index: 3;
+}
+
+.pin--selected::after {
+  box-shadow:
+    0 0 0 3px var(--pin-ring),
+    0 0 0 4.5px var(--pin),
+    0 2px 10px rgba(15, 22, 32, 0.3);
+}
+
+.pin--pulse .pin-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: var(--pin);
+  opacity: 0.5;
+  animation: pin-pulse var(--pulse, 2s) cubic-bezier(0, 0, 0.2, 1) infinite;
+  pointer-events: none;
+}
+
+@keyframes pin-pulse {
+  0% {
+    transform: scale(0.75);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+.cluster {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 9px;
+  border-radius: 9999px;
+  border: 2.5px solid var(--pin-ring);
+  background: var(--pin);
+  color: var(--pin-label);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  box-shadow:
+    0 0 0 7px color-mix(in srgb, var(--pin) 22%, transparent),
+    0 0 0 1px var(--pin-ring-outline),
+    0 2px 8px rgba(15, 22, 32, 0.2);
+  transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.cluster:hover {
+  transform: scale(1.1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pin--pulse .pin-ring {
+    animation: none;
+    opacity: 0.22;
+  }
+
+  /* Every animation here is decorative and nothing waits on one to finish, so
+     collapsing them to a single frame is safe: content still ends up in its
+     final position, it just gets there immediately. `both` fill on the
+     entrances is what guarantees the end state rather than the start state. */
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  .shimmer,
+  .breathe,
+  .drift {
+    animation: none !important;
+  }
+
+  .lift:hover {
+    transform: none;
+  }
+}
+
+/* MapLibre chrome, themed */
+.maplibregl-ctrl-group {
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 2px 8px rgba(15, 22, 32, 0.12) !important;
+}
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid var(--border) !important;
+}
+
+/* NOTE: MapLibre ships BLACK control glyphs. The dark theme inverted them to
+   near-white; on a light theme that inversion makes the +, − and geolocate
+   icons white-on-white — present, clickable, and completely invisible. Leave
+   them un-inverted here. */
+
+.maplibregl-ctrl-attrib {
+  background: rgba(255, 255, 255, 0.88) !important;
+  color: var(--text-faint) !important;
+  font-size: 10px !important;
+}
+.maplibregl-ctrl-attrib a {
+  color: var(--text-faint) !important;
+}
+
+/* Scrollbars */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-3) transparent;
+}
+.scroll-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--surface-3);
+  border-radius: 3px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Hide scrollbar but keep scrolling (horizontal rails) */
+.no-bar {
+  scrollbar-width: none;
+}
+.no-bar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Focus ring — never removed, only styled. */
+:where(button, a, input, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Bottom sheet entrance */
+@keyframes sheet-up {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.sheet-in {
+  animation: sheet-up 220ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.fade-in {
+  animation: fade-in 160ms ease-out;
+}
+
+/* ---------------------------------------------------------------------------
+   MOTION
+
+   One shared easing curve and a small set of named entrances, so movement
+   reads as one system rather than each component inventing its own timing.
+   Everything here is decorative: no layout depends on an animation completing,
+   which is what makes the reduced-motion block at the bottom safe to apply.
+--------------------------------------------------------------------------- */
+:root {
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+/* Entrance: content lifts into place. Stagger with inline animationDelay. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise-in {
+  animation: rise-in 420ms var(--ease-out) both;
+}
+
+/* Horizontal entrance for list rows (agent trace, timeline). */
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.slide-in {
+  animation: slide-in 300ms var(--ease-out) both;
+}
+
+/* Map pins land rather than appear — overshoot sells the drop.
+
+   Applied to ::after, NEVER to .pin itself. MapLibre positions each marker by
+   writing `transform: translate(...)` onto the marker element, so animating
+   transform on that same element overwrites the positioning and every pin
+   stacks in the map's top-left corner. The pseudo-element is inset:0 within the
+   pin, so it can be transformed freely without touching the host. */
+@keyframes pin-drop {
+  0% {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.4);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(0) scale(1.12);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.pin-drop::after {
+  animation: pin-drop 520ms var(--ease-spring) both;
+  /* Custom properties inherit into pseudo-elements; animation-delay set
+     directly on the element would not reach ::after. */
+  animation-delay: var(--drop-delay, 0ms);
+}
+
+/* Errors: a short lateral shake reads as "rejected" faster than colour alone. */
+@keyframes shake-in {
+  0% {
+    opacity: 0;
+    transform: translateX(0);
+  }
+  25% {
+    opacity: 1;
+    transform: translateX(-5px);
+  }
+  50% {
+    transform: translateX(4px);
+  }
+  75% {
+    transform: translateX(-2px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+.shake-in {
+  animation: shake-in 380ms var(--ease-out) both;
+}
+
+/* Skeleton shimmer — a travelling highlight, not a pulsing block. */
+@keyframes shimmer {
+  from {
+    background-position: -180% 0;
+  }
+  to {
+    background-position: 180% 0;
+  }
+}
+.shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--surface-2) 0%,
+    var(--surface-3) 50%,
+    var(--surface-2) 100%
+  );
+  background-size: 180% 100%;
+  animation: shimmer 1.5s linear infinite;
+}
+
+/* Live indicator for the agent trace header. */
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.breathe {
+  animation: breathe 2s ease-in-out infinite;
+}
+
+/* Slow drift behind the auth panel. Large, cheap, GPU-composited. */
+@keyframes drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(4%, -3%, 0) scale(1.12);
+  }
+}
+.drift {
+  animation: drift 22s ease-in-out infinite;
+}
+
+/* Measured-value bars draw in.
+   Scale, not width: the element keeps its real width at all times, so if the
+   animation never runs the bar still shows the CORRECT value. Animating width
+   from a custom property meant a failed var() left the bar at its natural
+   100% — every rate rendering as if it were 100%, which on this particular
+   chart is the exact lie the page exists to call out. */
+@keyframes grow-bar {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.grow-bar {
+  transform-origin: left center;
+  animation: grow-bar 900ms var(--ease-out) both;
+}
+
+/* Hover lift for cards in the Recently Fixed rail. */
+.lift {
+  transition:
+    transform 220ms var(--ease-out),
+    border-color 220ms var(--ease-out),
+    box-shadow 220ms var(--ease-out);
+}
+.lift:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(15, 22, 32, 0.1);
+}

@@ -1,0 +1,164 @@
+"use client";
+
+import Icon from "./Icon";
+import UserMenu from "./UserMenu";
+import { t, type Lang } from "@/lib/i18n";
+
+interface Props {
+  stats: {
+    open: number;
+    breached: number;
+    verified: number;
+    fixRate: number;
+    claimedRate: number;
+  };
+  lang: Lang;
+  demo: boolean;
+  outboxCount: number;
+  displayName: string;
+  email: string;
+  avatarUrl?: string | null;
+  onToggleLang: () => void;
+  onToggleDemo: () => void;
+  onOpenOutbox: () => void;
+  onToggleTrace: () => void;
+  onReset: () => void;
+}
+
+export default function TopBar({
+  stats,
+  lang,
+  demo,
+  outboxCount,
+  displayName,
+  email,
+  avatarUrl,
+  onToggleLang,
+  onToggleDemo,
+  onOpenOutbox,
+  onToggleTrace,
+  onReset,
+}: Props) {
+  return (
+    // pt-safe keeps the bar clear of the Dynamic Island while the surface
+    // colour still fills the notch area, so there's no seam above the header.
+    <header className="pt-safe px-safe relative z-[var(--z-overlay)] shrink-0 border-b border-[var(--border)] bg-[var(--surface)]">
+      <div className="flex h-14 items-center gap-2 px-3 sm:px-4">
+        {/* Brand */}
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--accent)]/15 text-[var(--accent)]">
+            <Icon name="shield" size={17} />
+          </span>
+          <div className="hidden sm:block">
+            <p className="text-[13px] font-semibold leading-none tracking-tight">
+              CivicAgent
+            </p>
+            <p className="mt-0.5 text-[10px] leading-none text-[var(--text-faint)]">
+              Chennai
+            </p>
+          </div>
+        </div>
+
+        {/* Stats — the honest numbers, always visible */}
+        <div className="ml-1 flex min-w-0 items-center gap-1 overflow-x-auto no-bar sm:gap-1.5">
+          <Stat label={t(lang, "open")} value={stats.open} tone="var(--accent)" />
+          <Stat label={t(lang, "pastSla")} value={stats.breached} tone="var(--danger)" />
+          <Stat label={t(lang, "verified")} value={stats.verified} tone="var(--success)" />
+        </div>
+
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          {/* Verified vs claimed — the whole thesis, as one number */}
+          <div
+            className="mr-1 hidden text-right md:block"
+            title="Citizen-verified closures only. Authority claims are excluded — that gap is the point."
+          >
+            <p className="text-[15px] font-bold leading-none tabular-nums text-[var(--success)]">
+              {stats.fixRate}%
+            </p>
+            <p className="mt-0.5 text-[9px] leading-none text-[var(--text-faint)]">
+              verified · {stats.claimedRate}% claimed
+            </p>
+          </div>
+
+          <IconBtn label="Switch language" onClick={onToggleLang}>
+            <span className="text-[11px] font-semibold">
+              {lang === "en" ? "தமிழ்" : "EN"}
+            </span>
+          </IconBtn>
+
+          <IconBtn label="Open outbox" onClick={onOpenOutbox} badge={outboxCount}>
+            <Icon name="inbox" size={17} />
+          </IconBtn>
+
+          <button
+            onClick={onToggleDemo}
+            aria-pressed={demo}
+            title="Compress time so deadlines arrive during a demo"
+            className={`flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold transition-colors ${
+              demo
+                ? "bg-[var(--warning)] text-[var(--on-accent)]"
+                : "border border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--border-strong)] hover:text-[var(--text)]"
+            }`}
+          >
+            <Icon name="clock" size={15} />
+            <span className="hidden sm:inline">{demo ? "1s = 1h" : "Demo"}</span>
+          </button>
+
+          <IconBtn label="Toggle agent trace" onClick={onToggleTrace} className="lg:hidden">
+            <Icon name="activity" size={17} />
+          </IconBtn>
+
+          <span className="mx-0.5 hidden h-6 w-px bg-[var(--border)] sm:block" />
+
+          <UserMenu displayName={displayName} email={email} avatarUrl={avatarUrl} onReset={onReset} />
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function Stat({ label, value, tone }: { label: string; value: number; tone: string }) {
+  return (
+    <div className="shrink-0 rounded-lg bg-[var(--surface-2)] px-2.5 py-1.5">
+      <p
+        className="text-[13px] font-bold leading-none tabular-nums"
+        style={{ color: tone }}
+      >
+        {value}
+      </p>
+      <p className="mt-0.5 whitespace-nowrap text-[9px] leading-none text-[var(--text-faint)]">
+        {label}
+      </p>
+    </div>
+  );
+}
+
+function IconBtn({
+  children,
+  label,
+  onClick,
+  badge,
+  className = "",
+}: {
+  children: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  badge?: number;
+  className?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className={`relative grid h-9 min-w-9 place-items-center rounded-lg border border-[var(--border)] px-2 text-[var(--text-dim)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text)] ${className}`}
+    >
+      {children}
+      {badge !== undefined && badge > 0 && (
+        <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--accent)] px-1 text-[9px] font-bold text-white tabular-nums">
+          {badge > 99 ? "99+" : badge}
+        </span>
+      )}
+    </button>
+  );
+}

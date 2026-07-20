@@ -1,0 +1,487 @@
+"use client";
+
+import { useCallback, useRef, useState } from "react";
+import Icon from "./Icon";
+import { processImage, type ProcessedImage, type BlurRegion } from "@/lib/imaging";
+import { type DetectionResult } from "@/lib/detect";
+import { llmAnalyze, type LLMAnalysisResult } from "@/lib/llm-analyze";
+import { locate, resolveAuthority, type LocationFix, type ResolveOutcome } from "@/lib/pipeline";
+import type { IssueCategory, CategorySource, Severity } from "@/lib/types";
+import { CATEGORY_OPTIONS } from "@/lib/detect";
+import { t, type Lang } from "@/lib/i18n";
+
+export interface ConfirmedReport {
+  image: ProcessedImage;
+  detection: DetectionResult;
+  category: IssueCategory;
+  categorySource: CategorySource;
+  categoryConfidence: number;
+  fix: LocationFix;
+  resolved: Extract<ResolveOutcome, { ok: true }>;
+}
+
+const SEVERITY_OPTIONS: { value: "minor" | "moderate" | "severe"; label: string; mapped: Severity }[] = [
+  { value: "minor",    label: "Minor",    mapped: "small"  },
+  { value: "moderate", label: "Moderate", mapped: "medium" },
+  { value: "severe",   label: "Severe",   mapped: "large"  },
+];
+
+type Stage = "idle" | "analysing" | "identified" | "filing";
+
+/**
+ * The primary flow: photograph a defect, have it identified, tap once.
+ *
+ * The agents run BEFORE the button, not after it — so the citizen sees the
+ * ward, the responsible agencies and the deadline they are about to hold
+ * someone to, rather than discovering them afterwards. That inversion is why
+ * both refusal paths (`unreachable`, `no_authority`) render as blocking states
+ * here instead of aborting a submission.
+ *
+ * The honesty disclosures are collapsed, not deleted. They are the reason this
+ * app is trustworthy; they just shouldn't stand between a resident and the one
+ * button they came to press.
+ */
+export default function ReportTab({
+  lang,
+  displayName,
+  onConfirm,
+  busy,
+}: {
+  lang: Lang;
+  /** First name only — a full "Aravind Kumar S" in a greeting reads like a form letter. */
+  displayName: string;
+  onConfirm: (c: ConfirmedReport) => void;
+  busy: boolean;
+}) {
+  const firstName = displayName.trim().split(/\s+/)[0] || "";
+  const fileRef = useRef<HTMLInputElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  const [stage, setStage] = useState<Stage>("idle");
+  const [step, setStep] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [image, setImage] = useState<ProcessedImage | null>(null);
+  const [regions, setRegions] = useState<BlurRegion[]>([]);
+  const [llmResult, setLlmResult] = useState<LLMAnalysisResult | null>(null);
+  const [category, setCategory] = useState<IssueCategory | null>(null);
+  const [source, setSource] = useState<CategorySource>("user");
+  // Severity as returned by LLM, overrideable by user
+  const [severity, setSeverity] = useState<"minor" | "moderate" | "severe">("moderate");
+  const [fix, setFix] = useState<LocationFix | null>(null);
+  const [resolved, setResolved] = useState<ResolveOutcome | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
+
+  const reset = () => {
+    setStage("idle");
+    setFile(null);
+    setImage(null);
+    setRegions([]);
+    setLlmResult(null);
+    setCategory(null);
+    setSource("user");
+    setSeverity("moderate");
+    setFix(null);
+    setResolved(null);
+    setPickerOpen(false);
+    setShowDetail(false);
+  };
+
+  /** Redact → call LLM for category+severity → locate → resolve authority. */
+  const analyse = useCallback(async (f: File, blur: BlurRegion[]) => {
+    setStage("analysing");
+
+    try {
+      setStep("Redacting faces on your device…");
+      const processed = await processImage(f, blur);
+      setImage(processed);
+
+      // LLM analysis and geolocation run in parallel — independent of each other.
+      setStep("Analysing the image and finding your location…");
+      const [result, position] = await Promise.all([
+        llmAnalyze(processed.dataUrl),
+        locate(),
+      ]);
+      setLlmResult(result);
+      setFix(position);
+
+      // Pre-fill from LLM; user can override either.
+      const chosen = result.state === "unavailable" ? null : result.category;
+      setCategory(chosen);
+      setSource(result.state === "unavailable" ? "user" : "model");
+      if (result.severity) setSeverity(result.severity);
+      setPickerOpen(result.state !== "identified");
+
+      if (chosen) {
+        setStep("Resolving the responsible authority…");
+        try {
+          setResolved(await resolveAuthority(position.lat, position.lng, chosen));
+        } catch {
+          setResolved({ ok: false, kind: "unreachable" });
+        }
+      }
+    } catch (err) {
+      // Something unexpected threw — don't leave the user frozen.
+      // Surface the error as an unavailable LLM result so the form still
+      // renders and the user can pick category/severity manually.
+      console.error("[analyse] unexpected error:", err);
+      const pos = await locate().catch(() => ({ lat: 13.0389, lng: 80.2492, exact: false }));
+      setFix(pos);
+      setLlmResult({
+        category: null,
+        severity: null,
+        confidence: 0,
+        reason: "",
+        state: "unavailable",
+        note: "Something went wrong during analysis. Choose the category and severity below.",
+      });
+      setPickerOpen(true);
+    }
+
+    setStage("identified");
+  }, []);
+
+  const onPick = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      setFile(f);
+      setRegions([]);
+      await analyse(f, []);
+    },
+    [analyse]
+  );
+
+  /** Tap-to-redact — works everywhere, unlike the FaceDetector API. */
+  const onTapImage = useCallback(
+    async (e: React.MouseEvent<HTMLImageElement>) => {
+      if (!file || !image || !imgRef.current) return;
+      const rect = imgRef.current.getBoundingClientRect();
+      const size = Math.max(image.width, image.height) * 0.12;
+      const next = [
+        ...regions,
+        {
+          x: (e.clientX - rect.left) * (image.width / rect.width) - size / 2,
+          y: (e.clientY - rect.top) * (image.height / rect.height) - size / 2,
+          w: size,
+          h: size,
+        },
+      ];
+      setRegions(next);
+      await analyse(file, next);
+    },
+    [file, image, regions, analyse]
+  );
+
+  /** Changing the category re-resolves: a different category can mean a different agency. */
+  const chooseCategory = useCallback(
+    async (c: IssueCategory) => {
+      setCategory(c);
+      setSource("user");
+      setPickerOpen(false);
+      if (fix) {
+        setResolved(null);
+        setResolved(await resolveAuthority(fix.lat, fix.lng, c));
+      }
+    },
+    [fix]
+  );
+
+  // ---------------------------------------------------------------- idle
+  if (stage === "idle") {
+    return (
+      <Shell>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={onPick}
+          className="hidden"
+        />
+        {firstName && (
+          <p className="rise-in mb-3 text-[15px] font-semibold">
+            Hello, {firstName}.
+            <span className="ml-1.5 font-normal text-[var(--text-dim)]">
+              What have you found?
+            </span>
+          </p>
+        )}
+        <button
+          onClick={() => fileRef.current?.click()}
+          className="rise-in flex w-full flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-[var(--border-strong)] bg-[var(--surface)] py-16 transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent)]/5"
+        >
+          <span className="grid h-16 w-16 place-items-center rounded-full bg-[var(--accent)]/12 text-[var(--accent)]">
+            <Icon name="camera" size={28} />
+          </span>
+          <span className="text-[15px] font-semibold">{t(lang, "takePhoto")}</span>
+          <span className="max-w-[26ch] text-center text-[12px] leading-relaxed text-[var(--text-dim)]">
+            {t(lang, "photoHint")}
+          </span>
+        </button>
+        <p className="rise-in mt-4 text-center text-[11px] leading-relaxed text-[var(--text-faint)]">
+          Everything below happens before you commit: the photo is redacted on
+          your device, the issue is identified, and we work out which agency is
+          responsible. You confirm once.
+        </p>
+      </Shell>
+    );
+  }
+
+  // ------------------------------------------------------------ analysing
+  if (stage === "analysing" || !image || !llmResult) {
+    return (
+      <Shell>
+        <div className="flex flex-col items-center justify-center gap-4 py-24">
+          <span className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--surface-3)] border-t-[var(--accent)]" />
+          <p className="text-[13px] font-medium">{step}</p>
+          <p className="text-[11px] text-[var(--text-faint)]">
+            Nothing has been sent anywhere yet.
+          </p>
+        </div>
+      </Shell>
+    );
+  }
+
+  // ------------------------------------------------------------ identified
+  const ok = resolved?.ok === true ? resolved : null;
+  const canFile = Boolean(category && ok) && !busy;
+  // Map LLM severity string to the Severity type the pipeline expects.
+  const mappedSeverity: Severity = SEVERITY_OPTIONS.find(s => s.value === severity)?.mapped ?? "medium";
+
+  return (
+    <Shell>
+      <div className="rise-in overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-2,0_4px_12px_rgba(15,22,32,0.06))]">
+        {/* photo + tap to redact */}
+        <div className="relative">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            ref={imgRef}
+            src={image.dataUrl}
+            alt="Your report"
+            onClick={onTapImage}
+            className="max-h-[38vh] w-full cursor-crosshair object-cover"
+          />
+          <span className="absolute bottom-2 left-2 rounded bg-black/70 px-2 py-1 text-[10px] text-white">
+            {t(lang, "tapToBlur")}
+          </span>
+        </div>
+
+        <div className="p-4">
+          {/* --- category: the auto-identified answer, always changeable --- */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-faint)]">
+                {llmResult?.state === "identified" ? "Best guess" : "What is it?"}
+              </p>
+              <p className="mt-0.5 truncate text-[19px] font-bold leading-tight">
+                {category
+                  ? CATEGORY_OPTIONS.find((o) => o.value === category)?.[
+                      lang === "ta" ? "ta" : "label"
+                    ]
+                  : "Not identified"}
+              </p>
+              {llmResult?.reason && category && source !== "user" && (
+                <p className="mt-0.5 truncate text-[11px] text-[var(--text-dim)]">
+                  {llmResult.reason} · {Math.round((llmResult.confidence ?? 0) * 100)}% confident
+                </p>
+              )}
+            </div>
+            <button
+              onClick={() => setPickerOpen((v) => !v)}
+              className="shrink-0 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[12px] font-medium text-[var(--text-dim)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text)]"
+            >
+              {category ? "Change" : "Choose"}
+            </button>
+          </div>
+
+          {/* Unavailable note */}
+          {llmResult?.state === "unavailable" && llmResult.note && (
+            <p className="mt-2 rounded-lg border border-[var(--warning)]/35 bg-[var(--warning)]/10 px-3 py-2 text-[11px] leading-relaxed text-[var(--warning)]">
+              {llmResult.note}
+            </p>
+          )}
+
+          {pickerOpen && (
+            <div className="fade-in mt-3 grid grid-cols-3 gap-1.5">
+              {CATEGORY_OPTIONS.map((o) => (
+                <button
+                  key={o.value}
+                  onClick={() => chooseCategory(o.value)}
+                  className={`rounded-lg border px-2 py-2 text-[11px] transition-colors ${
+                    category === o.value
+                      ? "border-[var(--accent)] bg-[var(--accent)] font-semibold text-[var(--on-accent)]"
+                      : "border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--border-strong)]"
+                  }`}
+                >
+                  {lang === "ta" ? o.ta : o.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* --- severity: LLM pre-selects, user always has final say --- */}
+          <div className="mt-4">
+            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-faint)]">
+              Severity
+              <span className="ml-1.5 font-normal normal-case text-[var(--text-faint)]">
+                {source === "user" ? "(choose one)" : "(AI estimate — tap to change)"}
+              </span>
+            </p>
+            <div className="grid grid-cols-3 gap-1.5">
+              {SEVERITY_OPTIONS.map((s) => (
+                <button
+                  key={s.value}
+                  onClick={() => setSeverity(s.value)}
+                  className={`rounded-lg border px-2 py-2 text-[11px] font-medium transition-colors ${
+                    severity === s.value
+                      ? "border-[var(--accent)] bg-[var(--accent)] text-[var(--on-accent)]"
+                      : "border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--border-strong)]"
+                  }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* --- the facts you're about to file on --- */}
+          <dl className="mt-4 space-y-2 border-t border-[var(--border)] pt-3 text-[12px]">
+            <Row label="Location">
+              {fix?.exact ? (
+                ok?.routing.zoneName ? (
+                  `Ward ${ok.routing.ward}, ${ok.routing.zoneName}`
+                ) : (
+                  `${fix.lat.toFixed(4)}, ${fix.lng.toFixed(4)}`
+                )
+              ) : (
+                <span className="text-[var(--warning)]">
+                  Approximate — your device gave no location fix
+                </span>
+              )}
+            </Row>
+
+            <Row label="Files to">
+              {ok ? (
+                <span className="space-y-0.5">
+                  {ok.authorities.map((a) => (
+                    <span key={a.id} className="block">
+                      {a.name}
+                      {!(a as { verified?: boolean }).verified && (
+                        <span className="ml-1 text-[var(--warning)]">[unverified]</span>
+                      )}
+                    </span>
+                  ))}
+                  <span className="block text-[var(--text-faint)]">
+                    {ok.authorities[0].slaHours}h deadline · {ok.authorities[0].slaSource}
+                  </span>
+                </span>
+              ) : resolved?.ok === false ? (
+                <span className="text-[var(--danger)]">
+                  {resolved.kind === "unreachable"
+                    ? "Resolver unreachable — we will not guess a jurisdiction."
+                    : "No verified contact registry covers this location. We refuse to file blind."}
+                </span>
+              ) : category ? (
+                <span className="text-[var(--text-faint)]">Resolving…</span>
+              ) : (
+                <span className="text-[var(--text-faint)]">Pick a category first</span>
+              )}
+            </Row>
+          </dl>
+
+          {/* --- disclosures: collapsed, never removed --- */}
+          <button
+            onClick={() => setShowDetail((v) => !v)}
+            className="mt-3 flex w-full items-center justify-between border-t border-[var(--border)] pt-3 text-[11px] font-medium text-[var(--text-dim)]"
+          >
+            <span>Privacy and detector details</span>
+            <Icon name={showDetail ? "chevron-down" : "chevron-right"} size={14} />
+          </button>
+
+          {showDetail && (
+            <div className="fade-in mt-2 space-y-2 text-[11px] leading-relaxed text-[var(--text-dim)]">
+              <p
+                className={
+                  image.manualReviewRequired ? "text-[var(--warning)]" : "text-[var(--success)]"
+                }
+              >
+                {image.manualReviewRequired
+                  ? "TF.js blazeface could not run in this browser — tap any faces or number plates yourself."
+                  : `${image.facesFound} face(s) auto-redacted by TF.js blazeface`}
+                {image.detectionBackend && ` (backend: ${image.detectionBackend})`}.
+                {regions.length > 0 && ` ${regions.length} area(s) manually blurred by you.`}
+              </p>
+              <p>
+                EXIF stripped · the original never leaves your phone ·{" "}
+                {Math.round(image.bytes / 1024)} KB uploaded
+              </p>
+              <p className="text-[var(--text-faint)]">
+                Category and severity identified by Gemini 2.5 Flash. You confirmed the result.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* --- the one button --- */}
+        <div className="border-t border-[var(--border)] bg-[var(--surface-2)] p-4">
+          <button
+            disabled={!canFile}
+            onClick={() =>
+              category &&
+              ok &&
+              onConfirm({
+                image,
+                // Pass a minimal DetectionResult-shaped object using the user-chosen severity
+                detection: {
+                  severity: mappedSeverity,
+                  confidence: llmResult?.confidence ?? 0,
+                  areaFraction: 0,
+                  signals: [],
+                  lowConfidence: (llmResult?.confidence ?? 0) < 0.45,
+                  method: "heuristic-v1",
+                },
+                category,
+                categorySource: source,
+                categoryConfidence: llmResult?.confidence ?? 0,
+                fix: fix!,
+                resolved: ok,
+              })
+            }
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] text-[14px] font-bold text-[var(--on-accent)] transition active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-[var(--surface-3)] disabled:text-[var(--text-faint)]"
+          >
+            {busy ? (
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+            ) : (
+              <Icon name="send" size={17} />
+            )}
+            {busy ? "Filing…" : "Report this issue"}
+          </button>
+          <button
+            onClick={reset}
+            className="mt-2 w-full text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)]"
+          >
+            {t(lang, "retake")}
+          </button>
+        </div>
+      </div>
+    </Shell>
+  );
+}
+
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="scroll-thin h-full overflow-y-auto px-4 py-5">
+      <div className="mx-auto w-full max-w-lg">{children}</div>
+    </div>
+  );
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex gap-3">
+      <dt className="w-[74px] shrink-0 text-[var(--text-faint)]">{label}</dt>
+      <dd className="min-w-0 flex-1 font-medium">{children}</dd>
+    </div>
+  );
+}

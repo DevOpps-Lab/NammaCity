@@ -1,0 +1,107 @@
+[
+  {
+    "category": "Pothole",
+    "department": "Roads Maintenance",
+    "resolutionTarget": "2 days",
+    "trigger": "Complaint received",
+    "source": "GCC Road Maintenance Citizen Charter"
+  },
+  {
+    "category": "Road Cut",
+    "department": "Roads Maintenance",
+    "resolutionTarget": "2 days",
+    "trigger": "Complaint received",
+    "source": "GCC Road Maintenance Citizen Charter"
+  },
+  {
+    "category": "Footpath Damage",
+    "department": "Roads Maintenance",
+    "resolutionTarget": "1 week",
+    "trigger": "Complaint received",
+    "source": "GCC Road Maintenance Citizen Charter"
+  },
+  {
+    "category": "Centre Median Damage",
+    "department": "Roads Maintenance",
+    "resolutionTarget": "1 week",
+    "trigger": "Complaint received",
+    "source": "GCC Road Maintenance Citizen Charter"
+  },
+  {
+    "category": "Road Obstruction",
+    "department": "Roads Maintenance",
+    "resolutionTarget": "1 working day",
+    "trigger": "Complaint received",
+    "source": "GCC Road Maintenance Citizen Charter"
+  },
+  {
+    "category": "Missing/Broken Storm Water Drain Chamber Cover",
+    "department": "Storm Water Drain / Roads",
+    "resolutionTarget": "1 working day",
+    "trigger": "Complaint received",
+    "source": "GCC Road Maintenance Citizen Charter"
+  },
+  {
+    "category": "Debris on Public Land (Owner Responsible)",
+    "department": "Roads Maintenance",
+    "resolutionTarget": "Notice issued within 2 days",
+    "trigger": "Complaint received",
+    "source": "GCC Road Maintenance Citizen Charter"
+  },
+  {
+    "category": "Debris Removal by Corporation",
+    "department": "Roads Maintenance",
+    "resolutionTarget": "1 week after notice (if owner fails to comply)",
+    "trigger": "Owner does not comply",
+    "source": "GCC Road Maintenance Citizen Charter"
+  },
+  {
+    "category": "Road Cut Permission Request",
+    "department": "Roads Maintenance",
+    "resolutionTarget": "Within 2 weeks",
+    "trigger": "Application submitted",
+    "source": "GCC Road Maintenance Citizen Charter"
+  },
+  {
+    "category": "Dangerous Tree Branch",
+    "department": "Parks Department",
+    "resolutionTarget": "Owner to remove within 3 days of notice",
+    "trigger": "Notice issued",
+    "source": "GCC Tree Removal Citizen Charter"
+  },
+  {
+    "category": "Dangerous/Dead Tree Inspection",
+    "department": "Parks Department",
+    "resolutionTarget": "3 working days",
+    "trigger": "Application received",
+    "source": "GCC Tree Removal Citizen Charter"
+  },
+  {
+    "category": "Dead Tree Final Approval",
+    "department": "Regional Commissioner (Parks)",
+    "resolutionTarget": "2 days",
+    "trigger": "Inspection report submitted",
+    "source": "GCC Tree Removal Citizen Charter"
+  },
+  {
+    "category": "Healthy Tree Final Approval",
+    "department": "Regional Commissioner (Parks)",
+    "resolutionTarget": "15 days",
+    "trigger": "Inspection report submitted",
+    "source": "GCC Tree Removal Citizen Charter"
+  },
+  {
+    "category": "Tree Removal Fee Notification",
+    "department": "Parks Department",
+    "resolutionTarget": "3 days",
+    "trigger": "Final approval issued",
+    "source": "GCC Tree Removal Citizen Charter"
+  },
+  {
+    "category": "Tree Removal",
+    "department": "Parks Department",
+    "resolutionTarget": "7 days after fee payment",
+    "trigger": "Fee paid",
+    "source": "GCC Tree Removal Citizen Charter"
+  }
+]
