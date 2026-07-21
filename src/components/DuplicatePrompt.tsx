@@ -19,8 +19,8 @@ export default function DuplicatePrompt({
   onCancel: () => void;
 }) {
   return (
-    <div className="absolute inset-0 z-50 flex items-end justify-center bg-[var(--scrim)] backdrop-blur-sm md:items-center md:p-6">
-      <div className="w-full max-w-md rounded-t-2xl border border-[var(--border)] bg-[var(--surface)] p-5 md:rounded-2xl">
+    <div className="fade-in absolute inset-0 z-50 flex items-end justify-center bg-[var(--scrim)] backdrop-blur-sm md:items-center md:p-6">
+      <div className="sheet-in w-full max-w-md rounded-t-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--shadow-3)] md:rounded-2xl">
         <h3 className="text-base font-semibold">
           {candidates.length === 1 ? "Someone already reported this" : "Already reported nearby"}
         </h3>

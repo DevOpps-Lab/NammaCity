@@ -43,6 +43,7 @@ export async function llmAnalyze(dataUrl: string): Promise<LLMAnalysisResult> {
   let payload: {
     configured?: boolean;
     refused?: boolean;
+    rateLimited?: boolean;
     error?: string;
     category?: IssueCategory;
     severity?: LLMSeverity;
@@ -70,6 +71,11 @@ export async function llmAnalyze(dataUrl: string): Promise<LLMAnalysisResult> {
   }
   if (payload.refused) {
     return UNAVAILABLE("We couldn't analyse this photo. Choose the category and severity below.");
+  }
+  if (payload.rateLimited) {
+    return UNAVAILABLE(
+      "Automatic analysis has hit today's free-tier limit (Gemini allows ~20/day). Choose the category and severity below — filing works exactly the same."
+    );
   }
   if (payload.error || !payload.category) {
     return UNAVAILABLE(

@@ -15,7 +15,12 @@ import { fetchWithRetry } from "@/lib/supabase/fetch";
  *     here would still read zero rows.
  */
 
-const PUBLIC_PATHS = ["/login", "/signup", "/auth"];
+// /api/inbound/poll is reachable without a session because a cron/backstop
+// caller has none — it authorises itself with INBOUND_POLL_SECRET (and still
+// accepts a logged-in session for the in-app poll). The route returns 401 on
+// its own if neither is present, so opening the proxy here leaks nothing. Other
+// /api routes stay behind the optimistic guard so they can't be hit anonymously.
+const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/api/inbound/poll"];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });

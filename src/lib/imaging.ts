@@ -35,6 +35,12 @@ export interface ProcessedImage {
   bytes: number;
   /** Which TF.js backend ran, for the Agent Trace. */
   detectionBackend?: string;
+  /**
+   * The auto-detected face boxes, kept so a later tap-to-blur can re-render
+   * WITHOUT re-running blazeface. Re-detecting on every tap is what made
+   * blurring lag; passing these back skips it.
+   */
+  faceRegions: BlurRegion[];
 }
 
 const MAX_EDGE = 1280;
@@ -169,9 +175,19 @@ export function hammingDistance(a: string, b: string): number {
   return dist;
 }
 
+/**
+ * Redact and re-encode a photo on-device.
+ *
+ * `cached` short-circuits face detection: when a tap-to-blur re-runs this to
+ * add one manual region, it passes back the faces found on the first pass so
+ * blazeface never runs again. That keeps re-blur instant and, just as
+ * importantly, avoids re-triggering the (rate-limited) upstream analysis, which
+ * the caller deliberately does NOT re-run for a blur.
+ */
 export async function processImage(
   file: File,
-  extraRegions: BlurRegion[] = []
+  extraRegions: BlurRegion[] = [],
+  cached?: { faceRegions: BlurRegion[]; supported: boolean; backend?: string }
 ): Promise<ProcessedImage> {
   const img = await loadImage(file);
 
@@ -187,7 +203,9 @@ export async function processImage(
   // Drawing to a canvas and re-encoding drops all EXIF metadata.
   ctx.drawImage(img, 0, 0, w, h);
 
-  const { regions, supported, backend } = await detectFaces(img);
+  const { regions, supported, backend } = cached
+    ? { regions: cached.faceRegions, supported: cached.supported, backend: cached.backend }
+    : await detectFaces(img);
   for (const r of regions) redactRegion(ctx, r, scale);
   // Manual regions are already in displayed-canvas coordinates.
   for (const r of extraRegions) redactRegion(ctx, r, 1);
@@ -204,5 +222,6 @@ export async function processImage(
     manualReviewRequired: !supported,
     bytes: Math.round((dataUrl.length * 3) / 4),
     detectionBackend: backend,
+    faceRegions: regions,
   };
 }

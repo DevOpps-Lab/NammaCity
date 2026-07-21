@@ -123,11 +123,46 @@ export async function resolveAuthority(
         };
       }
     } catch {
-      // LLM fallback failed — degrade to no_authority rather than hanging.
+      // LLM fallback failed (e.g. the vision/text model is rate-limited) —
+      // fall through to the deterministic fallback below rather than hanging.
     }
   }
 
-  return { ok: false, kind: "no_authority", routing };
+  // --- Deterministic fallback: a general municipal body -----------------------
+  // We know the coordinates and often a city, but have no verified registry and
+  // the LLM was unavailable. Refusing entirely would lock out every citizen
+  // outside the ~28 Indian ULBs with open ward polygons. Instead we file to a
+  // general municipal office, clearly marked UNVERIFIED — honest about the
+  // uncertainty without denying the citizen a filing. The real send target is
+  // the sandbox/demo mailbox regardless, so this never mails a stranger.
+  const place = routing.cityName ?? "this location";
+  const fallbackAuthority: AuthorityRecord = {
+    id: "fallback-municipal",
+    name: routing.cityName
+      ? `${routing.cityName} — Municipal Body (General Complaints)`
+      : "Local Municipal Body (General Complaints)",
+    email: "commissioner@localbody.gov.in",
+    verified: false,
+    source: "Deterministic fallback — no verified registry covers this location",
+    slaHours: 72,
+    slaSource: "Default 72h — no published charter located for this location",
+    categories: [category],
+  };
+  const fallbackRouting: RoutingResult = {
+    ...routing,
+    tier: 4,
+    confidence: "low",
+    method: `No verified registry for ${place} and LLM routing unavailable — filed to a general municipal body (unverified).`,
+    authorities: [fallbackAuthority],
+    ambiguityNote:
+      "Contact is a general municipal fallback, not a verified primary source. Marked unverified in the outbox.",
+  };
+  return {
+    ok: true,
+    routing: fallbackRouting,
+    authorities: [fallbackAuthority],
+    ms: Math.round(performance.now() - started),
+  };
 }
 
 export interface ConfirmedCapture {
@@ -223,7 +258,7 @@ export async function fileReport(
     lng: fix.lng,
     place: routing.zoneName
       ? `Ward ${routing.ward}, ${routing.zoneName}`
-      : (routing.cityName ?? "Unknown location"),
+      : (routing.cityName ?? `~${fix.lat.toFixed(4)}, ${fix.lng.toFixed(4)}`),
     category,
     categorySource: c.categorySource,
     categoryConfidence: c.categoryConfidence,

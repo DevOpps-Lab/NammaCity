@@ -23,6 +23,8 @@ interface Props {
   onOpenOutbox: () => void;
   onToggleTrace: () => void;
   onReset: () => void;
+  /** Number of agent-trace lines — drives the live dot on the trace button. */
+  traceCount: number;
 }
 
 export default function TopBar({
@@ -38,15 +40,19 @@ export default function TopBar({
   onOpenOutbox,
   onToggleTrace,
   onReset,
+  traceCount,
 }: Props) {
   return (
     // pt-safe keeps the bar clear of the Dynamic Island while the surface
     // colour still fills the notch area, so there's no seam above the header.
-    <header className="pt-safe px-safe relative z-[var(--z-overlay)] shrink-0 border-b border-[var(--border)] bg-[var(--surface)]">
+    <header className="pt-safe px-safe relative z-[var(--z-overlay)] shrink-0 border-b border-[var(--border)] bg-[var(--surface)]/95 shadow-[var(--shadow-1)] backdrop-blur">
       <div className="flex h-14 items-center gap-2 px-3 sm:px-4">
         {/* Brand */}
         <div className="flex shrink-0 items-center gap-2">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--accent)]/15 text-[var(--accent)]">
+          <span
+            className="grid h-8 w-8 place-items-center rounded-xl text-white shadow-[var(--shadow-1)]"
+            style={{ background: "var(--brand-grad)" }}
+          >
             <Icon name="shield" size={17} />
           </span>
           <div className="hidden sm:block">
@@ -94,9 +100,9 @@ export default function TopBar({
             onClick={onToggleDemo}
             aria-pressed={demo}
             title="Compress time so deadlines arrive during a demo"
-            className={`flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold transition-colors ${
+            className={`press flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold transition-colors ${
               demo
-                ? "bg-[var(--warning)] text-[var(--on-accent)]"
+                ? "bg-[var(--warning)] text-[var(--on-accent)] shadow-[var(--shadow-1)]"
                 : "border border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--border-strong)] hover:text-[var(--text)]"
             }`}
           >
@@ -104,8 +110,14 @@ export default function TopBar({
             <span className="hidden sm:inline">{demo ? "1s = 1h" : "Demo"}</span>
           </button>
 
-          <IconBtn label="Toggle agent trace" onClick={onToggleTrace} className="lg:hidden">
+          <IconBtn label="Agent trace" onClick={onToggleTrace}>
             <Icon name="activity" size={17} />
+            {traceCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-2.5 w-2.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--success)] opacity-70" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full border-2 border-[var(--surface)] bg-[var(--success)]" />
+              </span>
+            )}
           </IconBtn>
 
           <span className="mx-0.5 hidden h-6 w-px bg-[var(--border)] sm:block" />
@@ -119,16 +131,16 @@ export default function TopBar({
 
 function Stat({ label, value, tone }: { label: string; value: number; tone: string }) {
   return (
-    <div className="shrink-0 rounded-lg bg-[var(--surface-2)] px-2.5 py-1.5">
-      <p
-        className="text-[13px] font-bold leading-none tabular-nums"
-        style={{ color: tone }}
-      >
-        {value}
-      </p>
-      <p className="mt-0.5 whitespace-nowrap text-[9px] leading-none text-[var(--text-faint)]">
-        {label}
-      </p>
+    <div className="flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 transition-colors hover:border-[var(--border-strong)]">
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: tone }} />
+      <div>
+        <p className="text-[13px] font-bold leading-none tabular-nums" style={{ color: tone }}>
+          {value}
+        </p>
+        <p className="mt-0.5 whitespace-nowrap text-[9px] leading-none text-[var(--text-faint)]">
+          {label}
+        </p>
+      </div>
     </div>
   );
 }
@@ -151,7 +163,7 @@ function IconBtn({
       onClick={onClick}
       aria-label={label}
       title={label}
-      className={`relative grid h-9 min-w-9 place-items-center rounded-lg border border-[var(--border)] px-2 text-[var(--text-dim)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text)] ${className}`}
+      className={`press relative grid h-9 min-w-9 place-items-center rounded-lg border border-[var(--border)] px-2 text-[var(--text-dim)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text)] ${className}`}
     >
       {children}
       {badge !== undefined && badge > 0 && (

@@ -89,7 +89,11 @@ export function composeComplaint(
     body,
     reportId: report.id,
     recipientVerified: authority.verified,
-    delivered: true,
+    // Starts undelivered: `/api/dispatch` sends it over Gmail SMTP and flips
+    // this to true (recording the provider Message-ID). Before that, "not sent"
+    // is the honest state — the old `true` was a demo fiction from when nothing
+    // was ever actually transmitted.
+    delivered: false,
   };
 }
 

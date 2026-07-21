@@ -6,14 +6,17 @@ import { STATUS_STYLES } from "@/lib/status";
 import { formatRemaining, slaProgress, now } from "@/lib/demoClock";
 import type { InboundReply } from "@/lib/correspondence";
 import type { Lang } from "@/lib/i18n";
+import type { Comment } from "@/lib/db";
 import Icon from "./Icon";
 import Correspondence from "./Correspondence";
+import CommentThread from "./CommentThread";
 
 export default function ReportSheet({
   report,
-  lang,
   canAct,
   replies,
+  fetchComments,
+  onComment,
   onClose,
   onSupport,
   onRequestVerify,
@@ -31,6 +34,8 @@ export default function ReportSheet({
    */
   canAct: boolean;
   replies: { label: string; reply: InboundReply }[];
+  fetchComments: (reportId: string) => Promise<Comment[]>;
+  onComment: (reportId: string, body: string) => Promise<void>;
   onClose: () => void;
   onSupport: (id: string) => void;
   onRequestVerify: (r: Report) => void;
@@ -45,6 +50,9 @@ export default function ReportSheet({
   const overdue = t > report.slaDeadline;
   const closed = report.status === "verified_fixed";
   const acting = canAct && !closed;
+  // Closure is now community-verified: ANYONE can verify an open case with a
+  // photo. Escalate / RTI / the reply simulator stay owner-only (`acting`).
+  const canVerify = !closed;
 
   // Countdown ring
   const R = 26;
@@ -53,7 +61,7 @@ export default function ReportSheet({
   return (
     // pb-safe so the sheet's last action isn't sitting under the home indicator
     // on an iPhone. Inert on desktop, where env() resolves to 0px.
-    <div className="pb-safe absolute inset-x-0 bottom-0 z-20 max-h-[72%] overflow-y-auto scroll-thin rounded-t-2xl border-t border-[var(--border)] bg-[var(--surface)] shadow-2xl md:inset-x-auto md:left-4 md:bottom-4 md:max-h-[80%] md:w-[400px] md:rounded-2xl md:border">
+    <div className="sheet-in pb-safe absolute inset-x-0 bottom-0 z-20 max-h-[72%] overflow-y-auto scroll-thin rounded-t-2xl border-t border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-3)] md:inset-x-auto md:left-4 md:bottom-4 md:max-h-[80%] md:w-[400px] md:rounded-2xl md:border">
       <div className="sticky top-0 flex items-start justify-between gap-3 bg-[var(--surface)] px-5 pt-4 pb-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -146,7 +154,7 @@ export default function ReportSheet({
         )}
 
         {/* --- The claimed-vs-verified distinction -------------------------- */}
-        {report.status === "claims_done" && canAct && (
+        {report.status === "claims_done" && canVerify && (
           <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
             <p className="text-xs font-semibold text-amber-700">
               The authority says this is fixed. Nobody has checked.
@@ -246,9 +254,9 @@ export default function ReportSheet({
         )}
 
         {/* --- Actions ------------------------------------------------------
-            Supporting works on ANY report you can see. Verifying does not:
-            only the citizen who filed one can move it toward closure, so the
-            button is simply absent rather than present-and-failing. */}
+            Supporting AND verifying work on any open report you can see:
+            closure is community-verified, gated by a photo rather than by who
+            filed it. Escalate / RTI stay owner-only above. */}
         <div className="flex gap-2">
           <button
             onClick={() => onSupport(report.id)}
@@ -256,20 +264,21 @@ export default function ReportSheet({
           >
             {canAct ? "Me too" : "Back this report"} · {report.supporters}
           </button>
-          {acting && (
+          {canVerify && (
             <button
               onClick={() => onRequestVerify(report)}
               className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2.5 text-xs font-semibold transition-colors hover:border-[var(--border-strong)]"
             >
-              I walked past
+              Verify with a photo
             </button>
           )}
         </div>
 
-        {!canAct && (
+        {!canAct && !closed && (
           <p className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-2.5 text-[11px] leading-relaxed text-[var(--text-dim)]">
-            Another resident filed this. You can add your voice, but only they
-            can confirm it fixed — that is the whole point of the ledger.
+            Another resident filed this. You can back it, and — if you&apos;ve
+            seen it fixed — verify it with a photo. Escalation stays with the
+            filer.
           </p>
         )}
 
@@ -285,6 +294,16 @@ export default function ReportSheet({
             Correspondence
           </p>
           <Correspondence reportId={report.id} />
+        </div>
+
+        {/* --- Community discussion (anyone can comment) -------------------- */}
+        <div className="mt-4 border-t border-[var(--border)] pt-3">
+          <CommentThread
+            reportId={report.id}
+            area={report.place}
+            fetchComments={fetchComments}
+            onAdd={onComment}
+          />
         </div>
 
         {/* --- Correspondence simulator ------------------------------------ */}

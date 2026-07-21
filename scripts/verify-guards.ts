@@ -8,6 +8,7 @@ import { guardText, composePost } from "../src/lib/escalation";
 import { evaluateAfterPhoto, VERIFY_SCENARIOS } from "../src/lib/verification";
 import { classifyReply, applyReply, DEMO_REPLIES } from "../src/lib/correspondence";
 import { findDuplicates, haversineMetres } from "../src/lib/dedup";
+import { verdictOf } from "../src/lib/verify-vision";
 import type { Report } from "../src/lib/types";
 
 let failures = 0;
@@ -191,6 +192,35 @@ const differentAngle = findDuplicates(
 check(
   "different-angle photo is still surfaced via proximity",
   differentAngle.some((d) => d.report.id === "CA-A")
+);
+
+// -----------------------------------------------------------------------------
+// COMMUNITY-VERIFIED CLOSURE. Closure is no longer owner-only: anyone (or a
+// verified authority photo) can close a case, but ONLY with a photo that passes
+// verification. These check the photo GATE that replaces owner-identity.
+console.log("\n=== COMMUNITY-VERIFIED CLOSURE ===");
+
+// The gate: verdictOf must reject wrong-place and still-present photos, and only
+// pass a same-place, defect-gone photo.
+check("wrong-place photo is inconclusive (rejected)", verdictOf(0.3, 0.9) === "inconclusive");
+check("defect-still-visible photo is still_present (rejected)", verdictOf(0.9, 0.2) === "still_present");
+check("same-place, defect-gone photo is likely_repaired", verdictOf(0.9, 0.9) === "likely_repaired");
+check("borderline place match (<0.6) is rejected", verdictOf(0.55, 0.95) === "inconclusive");
+
+// The advisory evaluator is unchanged and still never auto-closes on its own —
+// the CLOSE is a separate, photo-gated step, so this invariant still holds.
+check(
+  "evaluateAfterPhoto still never auto-closes",
+  Object.values(VERIFY_SCENARIOS).every(
+    (s) => evaluateAfterPhoto(fakeReport, { placeMatch: s.placeMatch, defectConfidence: s.defectConfidence }).autoClose === false
+  )
+);
+
+// A "done" claim on its own (no verified photo) still must not close — the
+// classifier can never reach verified_fixed; only the separate photo step can.
+check(
+  "a done-claim alone never reaches verified_fixed",
+  applyReply(fakeReport, classifyReply({ from: "x", subject: "done", body: "work completed" }, fakeReport)).status !== "verified_fixed"
 );
 
 console.log(

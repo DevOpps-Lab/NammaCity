@@ -8,6 +8,7 @@ import TabBar, { type TabKey } from "@/components/TabBar";
 import ReportTab, { type ConfirmedReport } from "@/components/ReportTab";
 import ReportList from "@/components/ReportList";
 import ReportSheet from "@/components/ReportSheet";
+import Feed from "@/components/Feed";
 import AgentTrace from "@/components/AgentTrace";
 import VerifyPanel from "@/components/VerifyPanel";
 import EscalationPanel from "@/components/EscalationPanel";
@@ -82,6 +83,11 @@ export default function Home() {
         }
       );
 
+      // Actually send the composed complaint email(s) now. Fire-and-forget:
+      // the report is already filed and the outbox already holds the artifacts,
+      // so a slow/failed send never blocks landing the citizen on their ledger.
+      void store.dispatchReport(report.id);
+
       setBusy(false);
       // Land on the ledger with the new report open, rather than on a map pin —
       // what the citizen wants next is to watch it, not to look at it.
@@ -137,6 +143,7 @@ export default function Home() {
         onOpenOutbox={() => setOutboxOpen(true)}
         onToggleTrace={() => setTraceOpen((v) => !v)}
         onReset={() => void store.resetAll()}
+        traceCount={store.trace.length}
       />
 
       {store.error && (
@@ -177,6 +184,17 @@ export default function Home() {
             />
           )}
 
+          {tab === "feed" && (
+            <Feed
+              reports={store.reports}
+              commentCounts={store.commentCounts}
+              recentlyFixed={store.communityRecentlyFixed}
+              posts={store.publicPosts}
+              onSelect={(r) => setSelected(r)}
+              onSupport={store.support}
+            />
+          )}
+
           {/* Kept MOUNTED so MapLibre isn't rebuilt on every tab switch. */}
           <div
             className={
@@ -213,18 +231,18 @@ export default function Home() {
           </div>
         </div>
 
-        <aside className="hidden w-[320px] shrink-0 lg:block xl:w-[360px]">
-          <AgentTrace lines={store.trace} onClear={store.clearTrace} />
-        </aside>
-
+        {/* Agent Trace is an on-demand drawer on ALL breakpoints now — it was
+            an always-on desktop column that sat empty until a report was filed,
+            eating a third of the screen. It opens from the top bar and
+            auto-opens while a report is filing (see commit()). */}
         {traceOpen && (
           <>
             <button
               aria-label="Close agent trace"
               onClick={() => setTraceOpen(false)}
-              className="fade-in absolute inset-0 z-[var(--z-sheet)] bg-[var(--scrim)] backdrop-blur-sm lg:hidden"
+              className="fade-in absolute inset-0 z-[var(--z-sheet)] bg-[var(--scrim)] backdrop-blur-sm"
             />
-            <aside className="absolute inset-y-0 right-0 z-[var(--z-sheet)] w-[min(340px,88vw)] shadow-2xl lg:hidden">
+            <aside className="slide-in-right absolute inset-y-0 right-0 z-[var(--z-sheet)] w-[min(380px,90vw)] shadow-2xl">
               <AgentTrace
                 lines={store.trace}
                 onClear={store.clearTrace}
@@ -269,6 +287,8 @@ export default function Home() {
             lang={lang}
             canAct={mine}
             replies={DEMO_REPLIES}
+            fetchComments={store.fetchComments}
+            onComment={store.addComment}
             onClose={() => setSelected(null)}
             onSupport={store.support}
             onRequestVerify={(r) => setVerifying(r)}
@@ -294,8 +314,17 @@ export default function Home() {
         {verifying && (
           <VerifyPanel
             report={verifying}
+            isOwner={!verifying.ownerId || verifying.ownerId === user?.id}
             onClose={() => setVerifying(null)}
-            onConfirmFixed={store.confirmFixed}
+            onVerifyClose={(afterUrl) =>
+              store.verifyAndClose(
+                verifying,
+                afterUrl,
+                !verifying.ownerId || verifying.ownerId === user?.id
+                  ? "the citizen who filed it"
+                  : "another resident"
+              )
+            }
             onTrace={traceLine}
           />
         )}
@@ -307,14 +336,24 @@ export default function Home() {
             onPublish={(id, text) => {
               const r = store.reports.find((x) => x.id === id);
               store.updateReport(id, { status: "escalated", escalationPostId: `post_${id}` });
-              if (r) store.pushOutbox([composePostItem(r, text)]);
+              if (r) {
+                store.pushOutbox([composePostItem(r, text)]);
+                // Real X post (or simulated) to the Namma Chennai timeline. The
+                // escalated report is added to postedRef by the sweep effect;
+                // this manual path posts immediately with the user's note text.
+                void store.publishPost({ ...r, status: "escalated" }, "escalation", text);
+              }
             }}
             onTrace={traceLine}
           />
         )}
 
         {outboxOpen && (
-          <OutboxPanel items={store.outbox} onClose={() => setOutboxOpen(false)} />
+          <OutboxPanel
+            items={store.outbox}
+            onClose={() => setOutboxOpen(false)}
+            onCheckInbox={store.checkInbox}
+          />
         )}
       </div>
     </>

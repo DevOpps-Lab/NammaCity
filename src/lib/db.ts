@@ -115,6 +115,28 @@ export async function fetchReports(db: DB): Promise<Report[]> {
   return (data as unknown as ReportRow[]).map(rowToReport);
 }
 
+/**
+ * One report by (owner, id). Explicitly scoped by user_id — unlike the
+ * RLS-scoped fetches above, this is called from the inbound webhook through the
+ * service-role client, which bypasses RLS, so the owner filter is load-bearing:
+ * report ids are per-account (PK is (user_id, id)) and seed ids repeat.
+ */
+export async function fetchReportByOwner(
+  db: DB,
+  userId: string,
+  reportId: string
+): Promise<Report | null> {
+  const { data, error } = await db
+    .from("reports")
+    .select(REPORT_COLUMNS)
+    .eq("user_id", userId)
+    .eq("id", reportId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data ? rowToReport(data as unknown as ReportRow) : null;
+}
+
 export async function fetchOutbox(db: DB): Promise<OutboxItem[]> {
   const { data, error } = await db
     .from("outbox_items")
@@ -197,7 +219,13 @@ export async function updateReport(
   }
 
   if (Object.keys(row).length) {
-    const { error } = await db.from("reports").update(row).eq("id", id);
+    // user_id is scoped explicitly, not just left to RLS: this is also called
+    // from the inbound webhook via the service-role client, which bypasses RLS.
+    const { error } = await db
+      .from("reports")
+      .update(row)
+      .eq("user_id", userId)
+      .eq("id", id);
     if (error) throw error;
   }
 
@@ -206,6 +234,7 @@ export async function updateReport(
     const { data } = await db
       .from("timeline_events")
       .select("at, kind")
+      .eq("user_id", userId)
       .eq("report_id", id);
 
     const seen = new Set((data ?? []).map((e) => `${e.at}:${e.kind}`));
@@ -341,6 +370,118 @@ export async function fetchThread(db: DB, reportId: string): Promise<ThreadEntry
 export async function sweep(db: DB, now: number) {
   const { error } = await db.rpc("civic_sweep", { p_now: now });
   if (error) throw error;
+}
+
+// -------------------------------------------------------------- comments (feed)
+
+export interface Comment {
+  id: string;
+  reportId: string;
+  author: string;
+  /** Denormalised area label, so the feed can stay anonymous ("A resident · X"). */
+  authorArea: string | null;
+  at: number;
+  body: string;
+}
+
+export async function fetchComments(db: DB, reportId: string): Promise<Comment[]> {
+  const { data, error } = await db
+    .from("report_comments")
+    .select("id, report_id, author, author_area, at, body")
+    .eq("report_id", reportId)
+    .order("at");
+  if (error) throw error;
+  return (data ?? []).map((c) => ({
+    id: c.id,
+    reportId: c.report_id,
+    author: c.author,
+    authorArea: c.author_area,
+    at: c.at,
+    body: c.body,
+  }));
+}
+
+/** Comment counts across every visible report, for the feed cards. */
+export async function fetchCommentCounts(db: DB): Promise<Record<string, number>> {
+  const { data, error } = await db.from("report_comments").select("report_id");
+  if (error) throw error;
+  const counts: Record<string, number> = {};
+  for (const row of data ?? []) counts[row.report_id] = (counts[row.report_id] ?? 0) + 1;
+  return counts;
+}
+
+export async function addComment(
+  db: DB,
+  input: {
+    reportId: string;
+    reportOwner: string;
+    author: string;
+    area: string | null;
+    at: number;
+    body: string;
+  }
+) {
+  const { error } = await db.from("report_comments").insert({
+    report_id: input.reportId,
+    report_owner: input.reportOwner,
+    author: input.author,
+    author_area: input.area,
+    at: input.at,
+    body: input.body,
+  });
+  if (error) throw error;
+}
+
+// ----------------------------------------------------- public posts (X timeline)
+
+export interface PublicPost {
+  id: string;
+  reportId: string | null;
+  kind: "escalation" | "update" | "summary";
+  body: string;
+  source: "simulated" | "x";
+  tweetId: string | null;
+  tweetUrl: string | null;
+  at: number;
+}
+
+export async function fetchPublicPosts(db: DB, limit = 60): Promise<PublicPost[]> {
+  const { data, error } = await db
+    .from("public_posts")
+    .select("id, report_id, kind, body, source, tweet_id, tweet_url, at")
+    .order("at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []).map((p) => ({
+    id: p.id,
+    reportId: p.report_id,
+    kind: p.kind,
+    body: p.body,
+    source: p.source,
+    tweetId: p.tweet_id,
+    tweetUrl: p.tweet_url,
+    at: p.at,
+  }));
+}
+
+/**
+ * Community-verified closure. Calls the SECURITY DEFINER `verify_and_close`
+ * RPC, which can close a report the caller does not own — but only with a
+ * verifying photo. Returns true when a report actually transitioned.
+ */
+export async function verifyAndClose(
+  db: DB,
+  input: { owner: string; reportId: string; afterUrl: string; source: string; now: number }
+): Promise<boolean> {
+  const { data, error } = await db.rpc("verify_and_close", {
+    p_owner: input.owner,
+    p_report_id: input.reportId,
+    p_after_url: input.afterUrl,
+    p_source: input.source,
+    p_now: input.now,
+  });
+  if (error) throw error;
+  return Boolean(data);
 }
 
 /**

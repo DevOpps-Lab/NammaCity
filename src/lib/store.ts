@@ -10,6 +10,7 @@ import { isOpen, isBreached } from "./status";
 import type { OutboxItem } from "./outbox";
 import { composeReply } from "./outbox";
 import { classifyReply, applyReply, type InboundReply } from "./correspondence";
+import { composePost, composeUpdate } from "./escalation";
 import type { Lang } from "./i18n";
 
 /**
@@ -32,6 +33,8 @@ export function useCivicStore() {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [outbox, setOutbox] = useState<OutboxItem[]>([]);
+  const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+  const [publicPosts, setPublicPosts] = useState<db.PublicPost[]>([]);
   const [trace, setTrace] = useState<TraceLine[]>([]);
   const [lang, setLangState] = useState<Lang>("en");
   const [demo, setDemo] = useState(false);
@@ -45,13 +48,50 @@ export function useCivicStore() {
 
   const refetch = useCallback(async () => {
     try {
-      const [r, o] = await Promise.all([db.fetchReports(supabase), db.fetchOutbox(supabase)]);
+      const [r, o, cc, pp] = await Promise.all([
+        db.fetchReports(supabase),
+        db.fetchOutbox(supabase),
+        db.fetchCommentCounts(supabase).catch(() => ({})),
+        db.fetchPublicPosts(supabase).catch(() => [] as db.PublicPost[]),
+      ]);
       setReports(r);
       setOutbox(o);
+      setCommentCounts(cc);
+      setPublicPosts(pp);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load your ledger.");
     }
   }, [supabase]);
+
+  /**
+   * Publish a Namma Chennai post about a report — real X post when keys are set,
+   * simulated otherwise. Composed here (guarded), sent by /api/x-post, then the
+   * timeline refetches. Non-fatal: a failed post never blocks the workflow.
+   */
+  const publishPost = useCallback(
+    async (report: Report, kind: "escalation" | "update", text?: string) => {
+      const composed =
+        text ?? (kind === "escalation" ? composePost(report).text : composeUpdate(report).text);
+      try {
+        await fetch("/api/x-post", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            reportId: report.id,
+            kind,
+            text: composed,
+            photoUrl: report.photoUrl,
+            at: now(),
+          }),
+        });
+        const pp = await db.fetchPublicPosts(supabase).catch(() => [] as db.PublicPost[]);
+        setPublicPosts(pp);
+      } catch {
+        /* posting is best-effort */
+      }
+    },
+    [supabase]
+  );
 
   /**
    * Everything required to put a signed-in citizen in front of a working
@@ -228,6 +268,29 @@ export function useCivicStore() {
     return () => clearInterval(t);
   }, [supabase, user, demo]);
 
+  /**
+   * Auto-post to Namma Chennai when a report NEWLY escalates. On first load we
+   * seed the "already posted" set with every existing escalation so a fresh
+   * login doesn't spam the timeline with historical items — only transitions
+   * that happen while the app is open get posted.
+   */
+  const postedRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!user || !reports.length) return;
+    if (postedRef.current === null) {
+      postedRef.current = new Set(
+        reports.filter((r) => r.status === "escalated").map((r) => r.id)
+      );
+      return;
+    }
+    for (const r of reports) {
+      if (r.status === "escalated" && !postedRef.current.has(r.id)) {
+        postedRef.current.add(r.id);
+        void publishPost(r, "escalation");
+      }
+    }
+  }, [reports, user, publishPost]);
+
   const pushTrace = useCallback((line: TraceLine) => {
     setTrace((prev) => [...prev.slice(-60), line]);
   }, []);
@@ -350,55 +413,75 @@ export function useCivicStore() {
   );
 
   /**
-   * The ONLY path to `verified_fixed`. There is deliberately no automatic
-   * transition into this state anywhere in the codebase — not in the client,
-   * not in `civic_sweep()`.
+   * Community-verified closure — the path to `verified_fixed`.
+   *
+   * INVARIANT CHANGE: closure is no longer owner-only. ANY resident (or a
+   * verified authority photo, server-side) can close a case, but ONLY with a
+   * verifying photo that passed /api/verify-image (or the resident's own manual
+   * confirmation). The photo is the anti-fraud gate that replaces owner-identity.
+   * Enforced server-side by the `verify_and_close` RPC, which requires a photo
+   * and is the sole route that bypasses the still-in-place owner-only UPDATE RLS.
+   * `civic_sweep()` still cannot reach `verified_fixed`.
    */
-  const confirmFixed = useCallback(
-    async (id: string, afterPhotoUrl?: string) => {
+  const verifyAndClose = useCallback(
+    async (report: Report, afterPhotoUrl: string, source: string) => {
+      const uid = userRef.current;
+      if (!uid) return;
+      const owner = report.ownerId ?? uid;
       const at = now();
+
+      // Upload a fresh data-URL photo under the verifier's own storage folder.
+      let storedUrl = afterPhotoUrl;
+      if (afterPhotoUrl.startsWith("data:")) {
+        storedUrl = await db.uploadPhoto(supabase, uid, report.id, afterPhotoUrl, "after");
+      }
+
       const event: TimelineEvent = {
         at,
         kind: "verified_fixed",
-        detail: "Citizen confirmed the repair with an after-photo. Closed.",
+        detail: `Verified fixed by ${source}.`,
       };
-
-      let storedUrl = afterPhotoUrl;
-      if (afterPhotoUrl?.startsWith("data:") && userRef.current) {
-        storedUrl = await db.uploadPhoto(
-          supabase,
-          userRef.current,
-          id,
-          afterPhotoUrl,
-          "after"
-        );
-      }
-
       setReports((prev) =>
         prev.map((r) =>
-          r.id === id
+          r.id === report.id
             ? {
                 ...r,
                 status: "verified_fixed" as ReportStatus,
-                afterPhotoUrl: storedUrl ?? r.afterPhotoUrl,
+                afterPhotoUrl: storedUrl || r.afterPhotoUrl,
                 timeline: [...r.timeline, event],
               }
             : r
         )
       );
 
-      if (!userRef.current) return;
       try {
-        await db.updateReport(supabase, id, userRef.current, {
-          status: "verified_fixed",
-          afterPhotoUrl: storedUrl,
+        await db.verifyAndClose(supabase, {
+          owner,
+          reportId: report.id,
+          afterUrl: storedUrl,
+          source,
+          now: at,
         });
-        await db.appendTimeline(supabase, id, userRef.current, [event]);
+        void publishPost({ ...report, status: "verified_fixed" }, "update");
       } catch {
         void refetch();
       }
     },
-    [supabase, refetch]
+    [supabase, refetch, publishPost]
+  );
+
+  /** Owner shorthand. Closure now goes through the community-verified path. */
+  const confirmFixed = useCallback(
+    async (id: string, afterPhotoUrl?: string) => {
+      const target = reports.find((r) => r.id === id);
+      if (!target) return;
+      await verifyAndClose(
+        target,
+        afterPhotoUrl || target.photoUrl,
+        "the citizen who filed it"
+      );
+    },
+    [reports, verifyAndClose]
   );
 
   /** Feed an inbound reply through the correspondence handler. */
@@ -431,6 +514,9 @@ export function useCivicStore() {
 
       const updated = applyReply(target, classified);
       setReports((prev) => prev.map((r) => (r.id === reportId ? updated : r)));
+
+      // Keep the public timeline current: post the status change.
+      void publishPost(updated, "update");
 
       if (!userRef.current) return;
       const uid = userRef.current;
@@ -476,7 +562,7 @@ export function useCivicStore() {
 
       return classified;
     },
-    [reports, pushTrace, supabase, refetch]
+    [reports, pushTrace, supabase, refetch, publishPost]
   );
 
   /** Wipe this account's ledger and re-seed it. Scoped by RLS to the caller. */
@@ -495,6 +581,102 @@ export function useCivicStore() {
       setLoading(false);
     }
   }, [supabase, refetch]);
+
+  /**
+   * Actually send a report's composed complaint(s) over email. The outbox rows
+   * already exist (composed client-side, delivered=false); this asks the server
+   * to transmit them, then refetches so the Outbox shows delivered + the real
+   * recipient. Failing silently is fine — the composed artifacts already exist
+   * and the durable state is unchanged; it just wasn't sent this attempt.
+   */
+  const dispatchReport = useCallback(
+    async (reportId: string) => {
+      try {
+        await fetch("/api/dispatch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reportId }),
+        });
+        await refetch();
+      } catch {
+        /* compose-only fallback */
+      }
+    },
+    [refetch]
+  );
+
+  /**
+   * Sweep the system inbox for authority replies. The server matches each to a
+   * report, runs the SAME correspondence handler the simulator uses, and updates
+   * the ledger; we refetch only when something actually changed.
+   */
+  const checkInbox = useCallback(async () => {
+    try {
+      const res = await fetch("/api/inbound/poll", { method: "POST" });
+      if (!res.ok) return { processed: 0 };
+      const data = await res.json();
+      if (data.processed > 0) await refetch();
+      return data;
+    } catch {
+      return { processed: 0 };
+    }
+  }, [refetch]);
+
+  /**
+   * Auto-poll for inbound replies while the app is open. Fast under the demo
+   * clock (a reply should land on stage within a few seconds), lazy otherwise.
+   */
+  useEffect(() => {
+    if (!user) return;
+    const period = demo ? 5_000 : 30_000;
+    const t = setInterval(() => {
+      void checkInbox();
+    }, period);
+    return () => clearInterval(t);
+  }, [user, demo, checkInbox]);
+
+  /** Post a comment on any visible report (yours or another resident's). */
+  const addComment = useCallback(
+    async (reportId: string, body: string) => {
+      const target = reports.find((r) => r.id === reportId);
+      const uid = userRef.current;
+      if (!target || !uid || !body.trim()) return;
+      const at = now();
+      setCommentCounts((prev) => ({ ...prev, [reportId]: (prev[reportId] ?? 0) + 1 }));
+      try {
+        await db.addComment(supabase, {
+          reportId,
+          reportOwner: target.ownerId ?? uid,
+          author: uid,
+          area: target.place ?? null,
+          at,
+          body: body.trim(),
+        });
+      } catch {
+        setCommentCounts((prev) => ({
+          ...prev,
+          [reportId]: Math.max(0, (prev[reportId] ?? 1) - 1),
+        }));
+      }
+    },
+    [reports, supabase]
+  );
+
+  /** Load the full comment thread for one report (used when a case is opened). */
+  const fetchComments = useCallback(
+    (reportId: string) => db.fetchComments(supabase, reportId),
+    [supabase]
+  );
+
+  /** Community-wide "wins" — every resident's verified_fixed, newest first. */
+  const communityRecentlyFixed = useMemo(
+    () =>
+      reports
+        .filter((r) => r.status === "verified_fixed")
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, 12),
+    [reports]
+  );
 
   /**
    * Reports this citizen filed. The map is community-wide, but "My Reports",
@@ -562,7 +744,16 @@ export function useCivicStore() {
     pushOutbox,
     support,
     confirmFixed,
+    verifyAndClose,
     receiveReply,
+    dispatchReport,
+    checkInbox,
+    commentCounts,
+    addComment,
+    fetchComments,
+    communityRecentlyFixed,
+    publicPosts,
+    publishPost,
     resetAll,
     refetch,
     uploadPhoto: useCallback(

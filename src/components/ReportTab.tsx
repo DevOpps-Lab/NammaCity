@@ -71,6 +71,7 @@ export default function ReportTab({
   const [resolved, setResolved] = useState<ResolveOutcome | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
+  const [reblurring, setReblurring] = useState(false);
 
   const reset = () => {
     setStage("idle");
@@ -152,10 +153,18 @@ export default function ReportTab({
     [analyse]
   );
 
-  /** Tap-to-redact — works everywhere, unlike the FaceDetector API. */
+  /**
+   * Tap-to-redact — works everywhere, unlike the FaceDetector API.
+   *
+   * This ONLY re-renders the redaction: it reuses the faces already detected on
+   * the first pass and does NOT re-run the category/severity analysis or
+   * geolocation. Blurring a bystander must not re-classify the photo, re-hit the
+   * rate-limited vision model, or wipe the form to a spinner — all of which the
+   * old path did on every tap.
+   */
   const onTapImage = useCallback(
     async (e: React.MouseEvent<HTMLImageElement>) => {
-      if (!file || !image || !imgRef.current) return;
+      if (!file || !image || !imgRef.current || reblurring) return;
       const rect = imgRef.current.getBoundingClientRect();
       const size = Math.max(image.width, image.height) * 0.12;
       const next = [
@@ -168,9 +177,21 @@ export default function ReportTab({
         },
       ];
       setRegions(next);
-      await analyse(file, next);
+      setReblurring(true);
+      try {
+        const processed = await processImage(file, next, {
+          faceRegions: image.faceRegions,
+          supported: !image.manualReviewRequired,
+          backend: image.detectionBackend,
+        });
+        setImage(processed);
+      } catch (err) {
+        console.error("[redact] tap-to-blur failed:", err);
+      } finally {
+        setReblurring(false);
+      }
     },
-    [file, image, regions, analyse]
+    [file, image, regions, reblurring]
   );
 
   /** Changing the category re-resolves: a different category can mean a different agency. */
@@ -209,13 +230,17 @@ export default function ReportTab({
         )}
         <button
           onClick={() => fileRef.current?.click()}
-          className="rise-in flex w-full flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-[var(--border-strong)] bg-[var(--surface)] py-16 transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent)]/5"
+          className="press rise-in flex w-full flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-[var(--border-strong)] py-20 transition-all hover:border-[var(--accent)]"
+          style={{ background: "var(--brand-grad-soft)" }}
         >
-          <span className="grid h-16 w-16 place-items-center rounded-full bg-[var(--accent)]/12 text-[var(--accent)]">
-            <Icon name="camera" size={28} />
+          <span
+            className="breathe grid h-20 w-20 place-items-center rounded-full text-white shadow-[var(--shadow-2)]"
+            style={{ background: "var(--brand-grad)" }}
+          >
+            <Icon name="camera" size={32} />
           </span>
-          <span className="text-[15px] font-semibold">{t(lang, "takePhoto")}</span>
-          <span className="max-w-[26ch] text-center text-[12px] leading-relaxed text-[var(--text-dim)]">
+          <span className="text-[17px] font-bold">{t(lang, "takePhoto")}</span>
+          <span className="max-w-[28ch] text-center text-[12px] leading-relaxed text-[var(--text-dim)]">
             {t(lang, "photoHint")}
           </span>
         </button>
@@ -251,7 +276,7 @@ export default function ReportTab({
 
   return (
     <Shell>
-      <div className="rise-in overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-2,0_4px_12px_rgba(15,22,32,0.06))]">
+      <div className="card rise-in overflow-hidden shadow-[var(--shadow-2)]">
         {/* photo + tap to redact */}
         <div className="relative">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -263,8 +288,11 @@ export default function ReportTab({
             className="max-h-[38vh] w-full cursor-crosshair object-cover"
           />
           <span className="absolute bottom-2 left-2 rounded bg-black/70 px-2 py-1 text-[10px] text-white">
-            {t(lang, "tapToBlur")}
+            {reblurring ? "Blurring…" : t(lang, "tapToBlur")}
           </span>
+          {reblurring && (
+            <span className="absolute right-2 top-2 h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+          )}
         </div>
 
         <div className="p-4">

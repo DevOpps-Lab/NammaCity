@@ -177,6 +177,38 @@ function fmt(ms: number) {
 }
 
 /**
+ * A short, factual status-update post. Same rules as an escalation: institution
+ * handle only, no link, image-native, no characterisation. Used to keep the
+ * public timeline current as a case moves — acknowledged, transferred (clock
+ * still running), claimed-but-unverified, and resident-verified fixes. The
+ * verified-fix line is deliberately the loud one: it is the honest win.
+ */
+export function composeUpdate(report: Report): ComposedPost {
+  const days = Math.max(1, Math.floor((now() - report.createdAt) / 86_400_000));
+  const cat = report.category.replace(/_/g, " ");
+
+  const LINES: Partial<Record<Report["status"], string>> = {
+    acknowledged: `Update on ${report.id} (${report.place}): the authority has acknowledged this ${cat} complaint. The published clock keeps running.`,
+    transferred: `Update on ${report.id} (${report.place}): the agency says this ${cat} belongs to another department. Re-filed — the original clock is NOT reset.`,
+    claims_done: `Update on ${report.id} (${report.place}): the authority claims this ${cat} is fixed. Unverified — awaiting a resident's after-photo before it counts as closed.`,
+    past_sla: `Update on ${report.id} (${report.place}): this ${cat} has now passed the authority's own published service standard, ${days} days on.`,
+    escalated: `Update on ${report.id} (${report.place}): still unresolved after ${days} days, past the published standard.`,
+    verified_fixed: `Resolved ✅ ${report.id} (${report.place}): a resident has confirmed this ${cat} is fixed with an after-photo. Citizen-verified, not just claimed.`,
+  };
+
+  const text = `${LINES[report.status] ?? `Update on ${report.id} (${report.place}).`}\n\n@chennaicorp`;
+
+  return {
+    text,
+    mentions: ["@chennaicorp"],
+    attachImageNatively: true,
+    containsLink: false,
+    guard: { blocked: false, violations: [], cleaned: "" },
+    costUsd: 0.015,
+  };
+}
+
+/**
  * Aggregate ward-level post. Safer than per-issue accusation, much harder to
  * challenge, and far more likely to get a journalist to call — which is where
  * real pressure comes from. Bias the account toward these.

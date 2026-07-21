@@ -27,8 +27,8 @@ export default function EscalationPanel({
   const post = useMemo(() => composePost(report, note, variant), [report, note, variant]);
 
   return (
-    <div className="absolute inset-0 z-40 flex items-end justify-center bg-[var(--scrim)] p-0 backdrop-blur-sm md:items-center md:p-6">
-      <div className="max-h-[88%] w-full max-w-lg overflow-y-auto scroll-thin rounded-t-2xl border border-[var(--border)] bg-[var(--surface)] p-5 md:rounded-2xl">
+    <div className="fade-in absolute inset-0 z-40 flex items-end justify-center bg-[var(--scrim)] p-0 backdrop-blur-sm md:items-center md:p-6">
+      <div className="sheet-in max-h-[88%] w-full max-w-lg overflow-y-auto scroll-thin rounded-t-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--shadow-3)] md:rounded-2xl">
         <div className="mb-4 flex items-start justify-between">
           <div>
             <h3 className="text-base font-semibold">Escalate publicly</h3>

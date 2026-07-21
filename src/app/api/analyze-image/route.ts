@@ -122,8 +122,15 @@ export async function POST(request: NextRequest) {
       const detail = await res.text();
       // Log the full error to the server terminal so it's easy to diagnose.
       console.error(`[analyze-image] Gemini ${res.status}:`, detail.slice(0, 500));
+      // 429 = free-tier quota exhausted (gemini-2.5-flash allows ~20 req/day).
+      // Flag it distinctly so the UI can tell the citizen the honest reason
+      // rather than a generic "didn't work".
       return NextResponse.json(
-        { configured: true, error: `Gemini ${res.status}: ${detail.slice(0, 200)}` },
+        {
+          configured: true,
+          rateLimited: res.status === 429,
+          error: `Gemini ${res.status}: ${detail.slice(0, 200)}`,
+        },
         { status: 502 }
       );
     }

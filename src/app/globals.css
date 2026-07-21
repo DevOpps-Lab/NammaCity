@@ -38,6 +38,20 @@
   --warning: #d97706;
   --violet: #7c3aed;
 
+  /* Elevation + brand. A shared shadow scale so cards, sheets and popovers read
+     as one depth system instead of each inventing a box-shadow. */
+  --surface-raised: #ffffff;
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, #ffffff);
+  --shadow-1: 0 1px 2px rgba(15, 22, 32, 0.05), 0 1px 3px rgba(15, 22, 32, 0.05);
+  --shadow-2: 0 2px 8px rgba(15, 22, 32, 0.06), 0 6px 16px rgba(15, 22, 32, 0.05);
+  --shadow-3: 0 10px 30px rgba(15, 22, 32, 0.1), 0 3px 10px rgba(15, 22, 32, 0.06);
+  --brand-grad: linear-gradient(135deg, #2563eb 0%, #4f46e5 52%, #7c3aed 100%);
+  --brand-grad-soft: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 14%, #fff) 0%,
+    color-mix(in srgb, var(--violet) 12%, #fff) 100%
+  );
+
   /* Map pin chrome. On dark these were a white halo punched out of the
      basemap; on a pale basemap the pin needs a dark hairline instead, or it
      dissolves into the tiles. */
@@ -555,5 +569,78 @@ button {
 }
 .lift:hover {
   transform: translateY(-3px);
-  box-shadow: 0 8px 20px rgba(15, 22, 32, 0.1);
+  box-shadow: var(--shadow-3);
+}
+
+/* Drawer entrance from the right (the agent-trace panel). */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(18px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.slide-in-right {
+  animation: slide-in-right 260ms var(--ease-out) both;
+}
+
+/* Tactile press for buttons — a slight squash on tap reads as "pressed". */
+.press {
+  transition:
+    transform 120ms var(--ease-out),
+    filter 120ms var(--ease-out);
+}
+.press:active {
+  transform: scale(0.965);
+}
+
+/* Card surface: consistent radius + elevation + hover, in one class. */
+.card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-1);
+}
+.card-hover {
+  transition:
+    transform 200ms var(--ease-out),
+    box-shadow 200ms var(--ease-out),
+    border-color 200ms var(--ease-out);
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-2);
+  border-color: var(--border-strong);
+}
+
+/* Headline count-up: a subtle scale/settle when a number changes. */
+@keyframes count-pop {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.4;
+  }
+  60% {
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.count-pop {
+  animation: count-pop 360ms var(--ease-spring) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slide-in-right,
+  .count-pop {
+    animation: none !important;
+  }
+  .press:active,
+  .card-hover:hover {
+    transform: none;
+  }
 }

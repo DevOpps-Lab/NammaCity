@@ -5,16 +5,17 @@ A citizen-verified accountability ledger for civic defects.
 Photograph a pothole or broken drain. Agents identify the responsible ward and
 agencies, file against **all** plausibly-responsible bodies at once, run a clock
 against the authority's **own published** service standard, and escalate publicly
-when that standard is missed. **Only a citizen can close a report.**
+when that standard is missed. **A report closes only on a verified after-photo** —
+never on an authority's word alone.
 
 ```bash
 npm run dev          # http://localhost:3000
 npm run build
-npx tsx scripts/verify-guards.ts   # adversarial checks on both refusal paths
-node scripts/verify-rls.mjs        # two-account check that only the owner can close
+npx tsx scripts/verify-guards.ts   # adversarial checks on the refusal paths
+node scripts/verify-rls.mjs        # two-account check that direct writes stay owner-scoped
 ```
 
-## The three tabs
+## The four tabs
 
 **Report** — photograph a defect. It is redacted on-device, the severity is
 measured, the category is identified, your ward is resolved and the responsible
@@ -26,8 +27,19 @@ each authority, and a first-class *Awaiting you* filter for reports an authority
 claims to have fixed. That filter exists because `claims_done` is the one state
 where the loop cannot close without a human.
 
-**Map** — every citizen's reports, city-wide. You can open anyone's; only the
-citizen who filed one can close it.
+**Feed** — every citizen's cases as a public, anonymous social feed. Anyone can
+back a case, comment on it, and — if they have seen it fixed — verify it with a
+photo. A second view is the **Namma Chennai** timeline: the public posts (real
+X posts when configured, otherwise simulated) that escalations and updates fire.
+
+**Map** — every citizen's reports, city-wide, clustered by status.
+
+> **Closure model.** Closure is *community-verified*: any resident can close a
+> case, and an authority email that claims "done" **and attaches a photo** can
+> too — but **only** if the photo passes verification (same place, defect gone).
+> A claim with no verified photo never closes. The photo is the anti-fraud gate
+> that replaces "only the filer can close"; it is enforced by the
+> `verify_and_close` database function, which requires a photo.
 
 ## Setup
 
@@ -43,6 +55,9 @@ before it will run.
    supabase/migrations/0002_storage.sql # redacted-photo bucket + policies
    supabase/migrations/0003_oauth_profiles.sql              # Google name/avatar
    supabase/migrations/0004_category_correspondence_publicmap.sql
+   supabase/migrations/0005_community_support.sql           # per-supporter voice
+   supabase/migrations/0006_email_dispatch.sql              # real-send bookkeeping
+   supabase/migrations/0007_social_feed.sql                 # comments, public posts, verify_and_close
    ```
 
 3. **Turn off email confirmation** for the demo:
@@ -149,17 +164,26 @@ A jurisdiction transfer is **not** a closure. The clock keeps running.
 
 Both are verified by `scripts/verify-guards.ts`.
 
-**1. Verification never auto-closes** (`src/lib/verification.ts`)
+**1. Closure requires a *verified photo*, never a claim** (`src/lib/verify-vision.ts`,
+`src/app/api/verify-image`, `verify_and_close`)
 
 Published pothole detection tops out around 53% mAP@50 — potholes are the
-*weakest* class in the standard RDD2022 benchmark. So when the detector sees
-nothing in an after-photo, a large fraction of the time that is the model
-failing, not the road being fixed. Auto-closing on that signal would
+*weakest* class in the standard RDD2022 benchmark. So a status update alone,
+or a detector that sees nothing, is not proof of repair. Closing on that would
 algorithmically reproduce the exact fraud this product exists to stop.
 
-`evaluateAfterPhoto()` returns evidence and a recommendation. `autoClose` is
-typed as literal `false`. The only path to `verified_fixed` is an explicit human
-tap.
+So a case closes **only** when a photo is submitted and *verified* — same place,
+defect gone — by `/api/verify-image` (Gemini vision), or, when that is
+unavailable, by the resident confirming their own after-photo. This is open to
+**any** resident, and to an authority email that claims done **and attaches a
+photo** that passes the same check. It is enforced at the database layer by
+`verify_and_close`, which refuses to run without a photo; `civic_sweep()` still
+cannot reach `verified_fixed` on its own. `evaluateAfterPhoto()`'s advisory
+`autoClose` remains literal `false` — the close is a separate, photo-gated step.
+
+> This is a deliberate shift from the original "only the citizen who filed it can
+> close it". The anti-fraud guarantee moved from *who* closes to *what evidence*
+> closes: no verified photo, no closure.
 
 **2. The escalation composer strips unsafe content** (`src/lib/escalation.ts`)
 
@@ -306,6 +330,35 @@ Complaints, auto-replies, RTI requests and escalation posts are composed in
 full — correct recipient, cited service standard, real body — then routed to a
 sink. The Outbox panel shows **intended recipient vs. where it actually went**,
 and flags unverified addresses.
+
+### Real email round-trip (`src/lib/email/`, `/api/dispatch`, `/api/inbound/poll`)
+
+The outbox can now actually **send** and the app can **receive and auto-handle**
+replies — without ever mailing a real government address.
+
+- **Send.** Filing a report fires `POST /api/dispatch`, which transmits the
+  composed complaint over **Gmail SMTP** from the app account
+  (`GMAIL_USER`). The `intended_to` stays the real role alias; `actually_to` is
+  the demo authority mailbox (`DEMO_AUTHORITY_EMAIL`). Runs as the logged-in
+  user, so RLS still scopes every write.
+- **Receive.** The app polls its own inbox over **Gmail IMAP** (in-app every few
+  seconds + a manual *Check inbox* button; an optional cron can hit
+  `/api/inbound/poll` with `INBOUND_POLL_SECRET`). Each reply is matched back to
+  its report by the sent **Message-ID** (`In-Reply-To`) — not the `CA-####`
+  reference, which is per-account and repeats across seeds.
+- **Auto-handle, same rules.** A matched reply runs the *existing*
+  `classifyReply` / `applyReply` on the server via the service-role client, so a
+  jurisdiction transfer still doesn't reset the clock and — load-bearingly —
+  `verified_fixed` stays unreachable. An authority's "done" moves the ticket to
+  `claims_done` (**awaiting citizen verification**), never closed. The only path
+  to closure remains a citizen after-photo.
+
+One Gmail **App Password** (2FA required) unlocks both SMTP and IMAP. Chosen over
+Resend/Postmark because those need a verified custom domain to *receive*, and the
+demo runs on Gmail addresses. Fill `GMAIL_USER`, `GMAIL_APP_PASSWORD`,
+`DEMO_AUTHORITY_EMAIL`, `SUPABASE_SERVICE_ROLE_KEY` and `INBOUND_POLL_SECRET` in
+`.env.local` (see `.env.example`). With Gmail unconfigured the app degrades to
+compose-only — exactly today's sandboxed behaviour.
 
 ## Demo
 

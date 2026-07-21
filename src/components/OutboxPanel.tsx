@@ -28,15 +28,32 @@ const KIND_COLOR: Record<OutboxItem["kind"], string> = {
 export default function OutboxPanel({
   items,
   onClose,
+  onCheckInbox,
 }: {
   items: OutboxItem[];
   onClose: () => void;
+  onCheckInbox?: () => Promise<{ processed?: number } | void>;
 }) {
   const [open, setOpen] = useState<string | null>(items[0]?.id ?? null);
+  const [checking, setChecking] = useState(false);
+  const [checkNote, setCheckNote] = useState<string | null>(null);
+
+  const checkInbox = async () => {
+    if (!onCheckInbox) return;
+    setChecking(true);
+    setCheckNote(null);
+    try {
+      const res = await onCheckInbox();
+      const n = (res && "processed" in res && res.processed) || 0;
+      setCheckNote(n ? `Processed ${n} reply(ies).` : "No new replies.");
+    } finally {
+      setChecking(false);
+    }
+  };
 
   return (
-    <div className="absolute inset-0 z-40 flex items-end justify-center bg-[var(--scrim)] backdrop-blur-sm md:items-center md:p-6">
-      <div className="max-h-[90%] w-full max-w-2xl overflow-y-auto scroll-thin rounded-t-2xl border border-[var(--border)] bg-[var(--surface)] p-5 md:rounded-2xl">
+    <div className="fade-in absolute inset-0 z-40 flex items-end justify-center bg-[var(--scrim)] backdrop-blur-sm md:items-center md:p-6">
+      <div className="sheet-in max-h-[90%] w-full max-w-2xl overflow-y-auto scroll-thin rounded-t-2xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--shadow-3)] md:rounded-2xl">
         <div className="mb-1 flex items-start justify-between">
           <h3 className="text-base font-semibold">Outbox</h3>
           <button
@@ -46,10 +63,27 @@ export default function OutboxPanel({
           >
             <Icon name="close" size={18} /></button>
         </div>
-        <p className="mb-4 text-[11px] leading-snug text-[var(--text-dim)]">
+        <p className="mb-3 text-[11px] leading-snug text-[var(--text-dim)]">
           Every message is composed in full — correct recipient, cited service standard,
-          real body — then routed to a sandbox. Nothing reaches a government address.
+          real body — and sent for real to the demo authority mailbox. The intended
+          government alias stays visible below; no mail reaches a real government address.
         </p>
+
+        {onCheckInbox && (
+          <div className="mb-4 flex items-center gap-2">
+            <button
+              onClick={checkInbox}
+              disabled={checking}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--hover-overlay)] disabled:opacity-50"
+            >
+              <Icon name="refresh" size={14} />
+              {checking ? "Checking…" : "Check inbox for replies"}
+            </button>
+            {checkNote && (
+              <span className="text-[11px] text-[var(--text-dim)]">{checkNote}</span>
+            )}
+          </div>
+        )}
 
         {items.length === 0 && (
           <p className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 text-center text-xs text-[var(--text-dim)]">

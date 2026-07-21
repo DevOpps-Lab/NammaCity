@@ -2,11 +2,12 @@
 
 import Icon, { type IconName } from "./Icon";
 
-export type TabKey = "report" | "reports" | "map";
+export type TabKey = "report" | "reports" | "feed" | "map";
 
 const TABS: { key: TabKey; label: string; icon: IconName }[] = [
   { key: "report", label: "Report", icon: "camera" },
   { key: "reports", label: "My Reports", icon: "file-text" },
+  { key: "feed", label: "Feed", icon: "users" },
   { key: "map", label: "Map", icon: "map" },
 ];
 
@@ -47,8 +48,8 @@ export default function TabBar({
                 <button
                   onClick={() => onChange(t.key)}
                   aria-current={on ? "page" : undefined}
-                  className={`relative flex h-14 w-full flex-col items-center justify-center gap-0.5 transition-colors ${
-                    on ? "text-[var(--accent)]" : "text-[var(--text-faint)]"
+                  className={`press relative flex h-14 w-full flex-col items-center justify-center gap-0.5 transition-colors ${
+                    on ? "text-[var(--accent)]" : "text-[var(--text-faint)] hover:text-[var(--text-dim)]"
                   }`}
                 >
                   <span className="relative">
@@ -79,12 +80,15 @@ export default function TabBar({
               onClick={() => onChange(t.key)}
               aria-current={on ? "page" : undefined}
               title={t.label}
-              className={`flex h-11 items-center gap-3 rounded-lg px-3 transition-colors xl:px-3.5 ${
+              className={`press relative flex h-11 items-center gap-3 rounded-xl px-3 transition-all xl:px-3.5 ${
                 on
-                  ? "bg-[var(--accent)]/10 text-[var(--accent)]"
+                  ? "bg-[var(--accent-soft)] text-[var(--accent)] shadow-[var(--shadow-1)]"
                   : "text-[var(--text-dim)] hover:bg-[var(--hover-overlay)] hover:text-[var(--text)]"
               }`}
             >
+              {on && (
+                <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-[var(--accent)]" />
+              )}
               <span className="relative shrink-0">
                 <Icon name={t.icon} size={19} />
                 {t.key === "reports" && badge ? <Dot count={badge} /> : null}
