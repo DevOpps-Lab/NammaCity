@@ -46,7 +46,7 @@ export default function TopBar({
     // pt-safe keeps the bar clear of the Dynamic Island while the surface
     // colour still fills the notch area, so there's no seam above the header.
     <header className="pt-safe px-safe relative z-[var(--z-overlay)] shrink-0 border-b border-[var(--border)] bg-[var(--surface)]/95 shadow-[var(--shadow-1)] backdrop-blur">
-      <div className="flex h-14 items-center gap-2 px-3 sm:px-4">
+      <div className="flex h-14 items-center gap-1.5 px-2 sm:gap-2 sm:px-4">
         {/* Brand */}
         <div className="flex shrink-0 items-center gap-2">
           <span
@@ -65,11 +65,18 @@ export default function TopBar({
           </div>
         </div>
 
-        {/* Stats — the honest numbers, always visible */}
-        <div className="ml-1 flex min-w-0 items-center gap-1 overflow-x-auto no-bar sm:gap-1.5">
+        {/* Stats — the honest numbers. The two actionable ones always show; the
+            verified count is redundant with the headline % so it drops on the
+            narrowest screens to keep the bar uncramped. */}
+        <div className="ml-0.5 flex min-w-0 items-center gap-1 overflow-x-auto no-bar sm:ml-1 sm:gap-1.5">
           <Stat label={t(lang, "open")} value={stats.open} tone="var(--accent)" />
           <Stat label={t(lang, "pastSla")} value={stats.breached} tone="var(--danger)" />
-          <Stat label={t(lang, "verified")} value={stats.verified} tone="var(--success)" />
+          <Stat
+            label={t(lang, "verified")}
+            value={stats.verified}
+            tone="var(--success)"
+            className="hidden min-[440px]:flex"
+          />
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-1">
@@ -129,9 +136,21 @@ export default function TopBar({
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: number; tone: string }) {
+function Stat({
+  label,
+  value,
+  tone,
+  className = "",
+}: {
+  label: string;
+  value: number;
+  tone: string;
+  className?: string;
+}) {
   return (
-    <div className="flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-1.5 transition-colors hover:border-[var(--border-strong)]">
+    <div
+      className={`flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 transition-colors hover:border-[var(--border-strong)] sm:px-2.5 ${className}`}
+    >
       <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: tone }} />
       <div>
         <p className="text-[13px] font-bold leading-none tabular-nums" style={{ color: tone }}>

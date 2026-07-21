@@ -29,7 +29,7 @@ export interface PipelineDeps {
   mintId: () => Promise<string>;
   uploadPhoto: (reportId: string, dataUrl: string) => Promise<string>;
   addReport: (r: Report) => Promise<void>;
-  pushOutbox: (items: OutboxItem[]) => void;
+  pushOutbox: (items: OutboxItem[]) => Promise<void> | void;
 }
 
 /** Chennai centroid. Only ever used when the device won't give us a fix. */
@@ -278,8 +278,17 @@ export async function fileReport(
     ],
   };
 
+  // ORDER MATTERS: the report must exist BEFORE the outbox rows, because
+  // outbox_items has a foreign key to reports(user_id, id). Previously the
+  // outbox insert fired first and lost a race with the report insert, so the
+  // FK violation was silently swallowed and the complaint was never persisted —
+  // which meant /api/dispatch had nothing to send and no email went out. Insert
+  // the report, then await the outbox persistence so dispatch (called right
+  // after this resolves) reliably finds the rows.
+  await deps.addReport(report);
+
   const items = authorities.map((a) => composeComplaint(report, a));
-  deps.pushOutbox(items);
+  await deps.pushOutbox(items);
   deps.pushTrace({
     agent: "FILING",
     status: "ok",
@@ -290,6 +299,5 @@ export async function fileReport(
     text: `Sandboxed → ${items[0].actuallyTo}. Nothing sent to a real government address.`,
   });
 
-  await deps.addReport(report);
   return report;
 }

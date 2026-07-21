@@ -162,8 +162,11 @@ export default function Home() {
       )}
 
       {/* Content row. Every absolute overlay below is scoped HERE, which is what
-          keeps the in-flow tab bar clear of them without any z-index juggling. */}
-      <div className="relative flex min-h-0 flex-1">
+          keeps the in-flow tab bar clear of them without any z-index juggling.
+          flex-col-reverse on mobile puts the TabBar (rendered first in DOM) at
+          the BOTTOM as a bottom bar; lg:flex-row makes it the left rail. Without
+          this the mobile nav collapsed into a cramped left column. */}
+      <div className="relative flex min-h-0 flex-1 flex-col-reverse lg:flex-row">
         <TabBar active={tab} onChange={setTab} badge={stats.claimed} />
 
         <div className="relative min-w-0 flex-1">

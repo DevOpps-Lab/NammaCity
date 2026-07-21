@@ -347,10 +347,17 @@ export function useCivicStore() {
   );
 
   const pushOutbox = useCallback(
-    (items: OutboxItem[]) => {
+    async (items: OutboxItem[]) => {
       setOutbox((prev) => [...items, ...prev].slice(0, 60));
       if (!userRef.current) return;
-      void db.insertOutbox(supabase, items, userRef.current).catch(() => {});
+      // Awaited so fileReport can guarantee the rows are persisted before it
+      // triggers dispatch. Errors are surfaced (not swallowed) so a failed
+      // complaint insert no longer silently drops the outgoing email.
+      try {
+        await db.insertOutbox(supabase, items, userRef.current);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not save the outbox item.");
+      }
     },
     [supabase]
   );
