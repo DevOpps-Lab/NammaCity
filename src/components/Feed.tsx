@@ -226,7 +226,9 @@ function NammaTimeline({ posts }: { posts: PublicPost[] }) {
               <p className="text-[12px] font-semibold leading-tight">Namma Chennai</p>
               <p className="text-[10px] text-[var(--text-faint)]">
                 @NammaChennai · {ago(p.at)} ·{" "}
-                {p.source === "x" ? (
+                {p.source === "bluesky" ? (
+                  <span className="text-[var(--accent)]">posted to Bluesky</span>
+                ) : p.source === "x" ? (
                   <span className="text-[var(--accent)]">posted to X</span>
                 ) : (
                   "simulated"
@@ -244,7 +246,7 @@ function NammaTimeline({ posts }: { posts: PublicPost[] }) {
               rel="noopener noreferrer"
               className="mt-1.5 inline-block text-[11px] font-medium text-[var(--accent)]"
             >
-              View on X ↗
+              View post ↗
             </a>
           )}
         </li>

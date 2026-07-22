@@ -439,7 +439,7 @@ export interface PublicPost {
   reportId: string | null;
   kind: "escalation" | "update" | "summary";
   body: string;
-  source: "simulated" | "x";
+  source: "simulated" | "x" | "bluesky";
   tweetId: string | null;
   tweetUrl: string | null;
   at: number;

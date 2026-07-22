@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { xConfigured, postToX } from "@/lib/x-client";
+import { postSocial } from "@/lib/social";
 import { guardText } from "@/lib/escalation";
 
 /**
@@ -58,22 +58,16 @@ export async function POST(req: Request) {
 
   const at = typeof body.at === "number" ? body.at : Date.now();
 
-  let source: "x" | "simulated" = "simulated";
+  let source: "x" | "bluesky" | "simulated" = "simulated";
   let tweetId: string | null = null;
   let tweetUrl: string | null = null;
 
-  if (xConfigured()) {
-    try {
-      const image = await fetchImage(body.photoUrl);
-      const res = await postToX({ text, image });
-      source = "x";
-      tweetId = res.id;
-      tweetUrl = res.url;
-    } catch (e) {
-      // Real post failed — record it as simulated rather than losing it, and
-      // surface the reason for debugging.
-      console.error("[x-post] X post failed:", e instanceof Error ? e.message : e);
-    }
+  const image = await fetchImage(body.photoUrl);
+  const posted = await postSocial({ text, image });
+  if (posted) {
+    source = posted.platform;
+    tweetId = posted.id;
+    tweetUrl = posted.url;
   }
 
   const { error } = await supabase.from("public_posts").insert({

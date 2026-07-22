@@ -4,7 +4,7 @@ import { composeReply } from "./outbox";
 import { composeUpdate, guardText } from "./escalation";
 import { sendMail, normalizeMessageId } from "./email/gmail";
 import { verifyAfterPhoto } from "./verify-vision";
-import { xConfigured, postToX } from "./x-client";
+import { postSocial } from "./social";
 import * as db from "./db";
 import { now } from "./demoClock";
 import type { Report } from "./types";
@@ -21,29 +21,31 @@ async function postUpdateToTimeline(
 ): Promise<void> {
   const guard = guardText(composeUpdate(report).text);
   const text = (guard.cleaned || composeUpdate(report).text).slice(0, 280);
-  let source: "x" | "simulated" = "simulated";
+  let source: "x" | "bluesky" | "simulated" = "simulated";
   let tweetId: string | null = null;
   let tweetUrl: string | null = null;
-  if (xConfigured()) {
+
+  let image: { content: Buffer; mimeType: string } | null = null;
+  if (report.photoUrl && !report.photoUrl.startsWith("data:")) {
     try {
-      let image: { content: Buffer; mimeType: string } | null = null;
-      if (report.photoUrl && !report.photoUrl.startsWith("data:")) {
-        const res = await fetch(report.photoUrl);
-        if (res.ok) {
-          image = {
-            content: Buffer.from(await res.arrayBuffer()),
-            mimeType: res.headers.get("content-type") ?? "image/jpeg",
-          };
-        }
+      const res = await fetch(report.photoUrl);
+      if (res.ok) {
+        image = {
+          content: Buffer.from(await res.arrayBuffer()),
+          mimeType: res.headers.get("content-type") ?? "image/jpeg",
+        };
       }
-      const res = await postToX({ text, image });
-      source = "x";
-      tweetId = res.id;
-      tweetUrl = res.url;
     } catch {
-      /* fall back to simulated */
+      /* post text-only */
     }
   }
+  const posted = await postSocial({ text, image });
+  if (posted) {
+    source = posted.platform;
+    tweetId = posted.id;
+    tweetUrl = posted.url;
+  }
+
   await admin.from("public_posts").insert({
     report_id: report.id,
     kind: "update",
