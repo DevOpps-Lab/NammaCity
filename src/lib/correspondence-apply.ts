@@ -1,11 +1,60 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { classifyReply, applyReply, type InboundReply } from "./correspondence";
 import { composeReply } from "./outbox";
-import { composeUpdate } from "./escalation";
+import { composeUpdate, guardText } from "./escalation";
 import { sendMail, normalizeMessageId } from "./email/gmail";
 import { verifyAfterPhoto } from "./verify-vision";
+import { xConfigured, postToX } from "./x-client";
 import * as db from "./db";
 import { now } from "./demoClock";
+import type { Report } from "./types";
+
+/**
+ * Post a status update to the Namma Chennai timeline (and to real X when keys
+ * are set), server-side, so the email round-trip drives the public timeline the
+ * same way the client simulate path does. Best-effort: never blocks the reply.
+ */
+async function postUpdateToTimeline(
+  admin: SupabaseClient,
+  report: Report,
+  userId: string
+): Promise<void> {
+  const guard = guardText(composeUpdate(report).text);
+  const text = (guard.cleaned || composeUpdate(report).text).slice(0, 280);
+  let source: "x" | "simulated" = "simulated";
+  let tweetId: string | null = null;
+  let tweetUrl: string | null = null;
+  if (xConfigured()) {
+    try {
+      let image: { content: Buffer; mimeType: string } | null = null;
+      if (report.photoUrl && !report.photoUrl.startsWith("data:")) {
+        const res = await fetch(report.photoUrl);
+        if (res.ok) {
+          image = {
+            content: Buffer.from(await res.arrayBuffer()),
+            mimeType: res.headers.get("content-type") ?? "image/jpeg",
+          };
+        }
+      }
+      const res = await postToX({ text, image });
+      source = "x";
+      tweetId = res.id;
+      tweetUrl = res.url;
+    } catch {
+      /* fall back to simulated */
+    }
+  }
+  await admin.from("public_posts").insert({
+    report_id: report.id,
+    kind: "update",
+    body: text,
+    source,
+    tweet_id: tweetId,
+    tweet_url: tweetUrl,
+    author: userId,
+    at: now(),
+  });
+}
 
 /**
  * SERVER-SIDE correspondence handler — the twin of `store.receiveReply()`.
@@ -63,6 +112,17 @@ export async function applyInboundReply(
     body: input.reply.body,
     kind: classified.kind,
   });
+
+  // Keep the public Namma Chennai timeline current from real email replies too
+  // — a transfer, a "done" claim, or a rejection are all worth surfacing. A
+  // bare acknowledgement is noise, so it is skipped.
+  if (classified.kind !== "acknowledged") {
+    try {
+      await postUpdateToTimeline(admin, updated, input.userId);
+    } catch {
+      /* best-effort */
+    }
+  }
 
   // `acknowledged` deliberately carries no autoResponse — replying to a bare
   // acknowledgement is noise. Everything else gets an auto-reply sent for real,

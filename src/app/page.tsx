@@ -169,7 +169,7 @@ export default function Home() {
       <div className="relative flex min-h-0 flex-1 flex-col-reverse lg:flex-row">
         <TabBar active={tab} onChange={setTab} badge={stats.claimed} />
 
-        <div className="relative min-w-0 flex-1">
+        <div className="relative min-h-0 min-w-0 flex-1">
           {tab === "report" && (
             <ReportTab
               lang={lang}

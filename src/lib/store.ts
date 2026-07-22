@@ -129,18 +129,9 @@ export function useCivicStore() {
         setLangState((profile.lang as Lang) ?? "en");
       }
 
-      try {
-        await db.seedIfEmpty(supabase, u.id);
-      } catch (e) {
-        // Deliberately surfaced, not swallowed. A silent failure here is
-        // indistinguishable from "the app is broken" — an empty map with no
-        // explanation is exactly how this bug hid.
-        setError(
-          e instanceof Error
-            ? `Could not set up your ledger: ${e.message}`
-            : "Could not set up your ledger."
-        );
-      }
+      // Seeding disabled: accounts start EMPTY so the demo shows only real,
+      // end-to-end activity (file -> email -> reply -> verify -> escalate ->
+      // post). Re-enable db.seedIfEmpty here to restore the sample caseload.
 
       await refetch();
     },
@@ -572,14 +563,15 @@ export function useCivicStore() {
     [reports, pushTrace, supabase, refetch, publishPost]
   );
 
-  /** Wipe this account's ledger and re-seed it. Scoped by RLS to the caller. */
+  /** Wipe this account's ledger to a clean slate. Scoped by RLS to the caller. */
   const resetAll = useCallback(async () => {
     if (!userRef.current) return;
     setLoading(true);
     try {
-      await supabase.from("reports").delete().eq("user_id", userRef.current);
+      // Delete children first (FK order), then the reports themselves. No
+      // re-seed — a reset now means a genuinely empty ledger to test against.
       await supabase.from("outbox_items").delete().eq("user_id", userRef.current);
-      await db.seedIfEmpty(supabase, userRef.current);
+      await supabase.from("reports").delete().eq("user_id", userRef.current);
       setTrace([]);
       await refetch();
     } catch (e) {
