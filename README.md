@@ -29,8 +29,10 @@ where the loop cannot close without a human.
 
 **Feed** — every citizen's cases as a public, anonymous social feed. Anyone can
 back a case, comment on it, and — if they have seen it fixed — verify it with a
-photo. A second view is the **Namma Chennai** timeline: the public posts (real
-X posts when configured, otherwise simulated) that escalations and updates fire.
+photo. A second view is the **Namma Chennai** timeline: the public posts that
+escalations and status updates fire — **real posts to Bluesky** (free, no API
+credits) when configured, with X as an alternative, otherwise shown in-app as
+simulated.
 
 **Map** — every citizen's reports, city-wide, clustered by status.
 
@@ -58,6 +60,7 @@ before it will run.
    supabase/migrations/0005_community_support.sql           # per-supporter voice
    supabase/migrations/0006_email_dispatch.sql              # real-send bookkeeping
    supabase/migrations/0007_social_feed.sql                 # comments, public posts, verify_and_close
+   supabase/migrations/0008_bluesky_source.sql              # 'bluesky' as a post source
    ```
 
 3. **Turn off email confirmation** for the demo:
@@ -66,14 +69,24 @@ before it will run.
    which will strand you mid-demo. The signup form handles both configurations —
    with confirmation on it tells you to check your inbox instead of hanging.
 
-4. **Wire the env**:
+4. **Wire the env** — `cp .env.example .env.local`, then fill in:
 
-   ```bash
-   cp .env.example .env.local   # then fill in URL + anon key from Settings -> API
-   ```
+   | Variable | For |
+   |---|---|
+   | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | required — Settings → API |
+   | `SUPABASE_SERVICE_ROLE_KEY` | the **secret** key — lets the inbound webhook write with no session |
+   | `GMAIL_USER`, `GMAIL_APP_PASSWORD` | real email send + receive (2FA + App Password) |
+   | `DEMO_AUTHORITY_EMAIL` | where authority mail is routed for the demo |
+   | `INBOUND_POLL_SECRET` | guards the inbound sweep |
+   | `GEMINI_API_KEY` | optional — auto category + after-photo verification |
+   | `BLUESKY_IDENTIFIER`, `BLUESKY_APP_PASSWORD` | optional — real public posts (free) |
+   | `X_API_KEY` / `X_API_SECRET` / `X_ACCESS_TOKEN` / `X_ACCESS_SECRET` | optional — X posting (needs paid credits) |
 
-5. `npm run dev`, create an account, and the map arrives pre-seeded with the
-   Chennai caseload described under [Demo](#demo).
+   Every optional block degrades gracefully when unset.
+
+5. `npm run dev`, create an account. The ledger starts **empty** — auto-seeding
+   is disabled so a demo shows only real, end-to-end activity. (Re-enable
+   `db.seedIfEmpty` in `src/lib/store.ts` to restore the sample caseload.)
 
 ### Google sign-in (optional)
 
@@ -205,6 +218,11 @@ safe harbour. Consequently:
 - **Template rotation**, because X forbids "substantially similar content" and
   account termination would end the product faster than any lawsuit.
 
+These guardrails run **before any post, on every platform** — `guardText()` is
+re-applied server-side in `/api/x-post` and the inbound handler, independent of
+where the post lands. See [Social posting](#social-posting-blueskyx) for the
+transport.
+
 ### Honest metrics
 
 The header publishes an independently computable **verified** fix rate —
@@ -244,15 +262,17 @@ auto-classified complaint is entitled to know that a human confirmed it.
 Postgres is the source of truth; Supabase Auth issues the session. Three
 decisions are worth calling out.
 
-**The refusal is an RLS policy, not a UI convention.** Reports are owner-scoped
-for select, insert, update and delete. "Only the citizen who filed it can close
-it" is therefore enforced by the database — bypassing the UI entirely still
-reads and writes nothing.
+**The refusals are database-enforced, not UI conventions.** Direct writes to a
+report (insert / update / delete) stay owner-scoped by RLS — bypassing the UI
+entirely still writes nothing. The one exception is *closure*, which is now
+community-verified (see below): it goes through the `security definer`
+`verify_and_close` function, which will not run without a verifying photo. So
+the boundary moved from *who* writes to *what evidence* closes — still enforced
+in Postgres, not the client. `civic_sweep()` still cannot reach `verified_fixed`.
 
 **The primary key is `(user_id, id)`, not `id`.** Report references are
-human-facing (`CA-4520`) and the seeded caseload uses fixed ones so the scripted
-demo beats stay reproducible. A global text key would collide on every seed row
-the moment a second person signed up.
+human-facing (`CA-4520`) and stay stable per account. A global text key would
+collide the moment a second person filed the same reference.
 
 **Lifecycle times are `bigint` epoch-ms, not `timestamptz`.** The demo clock
 compresses an hour into a second, so "now" is a client-controlled quantity.
@@ -261,19 +281,17 @@ authority on what time it is, and Postgres stays the authority on what that time
 *means*. `verified_fixed` is unreachable from inside the sweep by construction —
 the same refusal as the client, at the other end of the wire.
 
-Each new account is seeded with its own copy of the caseload, because a fresh
-map with nothing on it demonstrates nothing, and seeds owned by someone else
-would be unactionable under the policies above.
+Auto-seeding is now disabled: a real end-to-end demo (file → email → reply →
+verify → post) is more convincing than a pre-populated map, and a clean account
+shows only genuine activity. The seed builders remain in `src/lib/seed.ts` for
+anyone who wants the sample caseload back.
 
-**The map is community-wide; closure is not.** `0004` opens SELECT to every
-signed-in citizen while INSERT/UPDATE/DELETE stay owner-scoped — so anyone can
-watch a report, and only the person who filed it can close it. That is enforced
-by RLS, not by hiding a button; `scripts/verify-rls.mjs` proves it by attempting
-the close, escalate and delete directly against PostgREST as a second account.
-
-The public read excludes other people's **seeds**. Every account is seeded with
-the same fixed ids, so a plain `using (true)` would stack one copy of `CA-4520`
-per account on the map.
+**The map and feed are community-wide.** `0004` opens SELECT to every signed-in
+citizen while INSERT/UPDATE/DELETE on a report stay owner-scoped — so anyone can
+watch, back and comment on any report, but escalation and RTI remain the filer's.
+Closure is the deliberate community exception, gated by a verified photo through
+`verify_and_close`. `scripts/verify-rls.mjs` proves the owner-scoping by
+attempting a direct close/escalate/delete against PostgREST as a second account.
 
 ### Capture pipeline (`src/lib/imaging.ts`, `src/lib/detect.ts`)
 
@@ -307,8 +325,10 @@ claims-done / rejected. Two rules carry the design:
   original clock keeps running. The Standing Committee on Public Grievances
   (Dec 2021) found grievances routinely "disposed" by telling the citizen to go
   elsewhere; Mumbai bounced 727 of 10,361 pothole complaints to other agencies.
-- **"Done" is not done.** `claims_done` is a distinct state that only a citizen
-  with an after-photo can move to `verified_fixed`.
+- **"Done" is not done.** `claims_done` is a distinct state; a verified after-photo
+  is what moves it to `verified_fixed` (from any resident, or from an authority
+  reply that *attaches* a photo which passes verification). The classifier itself
+  can never reach `verified_fixed` — closure is always a separate, photo-gated step.
 
 ### Deduplication (`src/lib/dedup.ts`)
 
@@ -358,43 +378,89 @@ Resend/Postmark because those need a verified custom domain to *receive*, and th
 demo runs on Gmail addresses. Fill `GMAIL_USER`, `GMAIL_APP_PASSWORD`,
 `DEMO_AUTHORITY_EMAIL`, `SUPABASE_SERVICE_ROLE_KEY` and `INBOUND_POLL_SECRET` in
 `.env.local` (see `.env.example`). With Gmail unconfigured the app degrades to
-compose-only — exactly today's sandboxed behaviour.
+compose-only — exactly the sandboxed behaviour.
+
+### Public feed & community-verified closure (`0007`, `src/lib/verify-vision.ts`)
+
+The **Feed** tab is a public, anonymous social layer over the same reports:
+community reads were already open (`0004`), so a card feed with **backing**
+(`report_supports`) and **comments** (`report_comments`, new in `0007`, keyed by
+author like supports) is mostly presentation. Identity is never shown —
+"A resident · <area>" — so no `profiles` exposure is needed.
+
+Closure is now **community-verified**. Anyone who has seen a defect fixed can
+submit an after-photo; a **verified authority reply** (a "done" email *with* an
+image) can too. The gate is `/api/verify-image` (Gemini vision) comparing the
+before and after — *same place? defect gone?* — mapped to the same thresholds as
+the advisory `evaluateAfterPhoto`. When Gemini is unavailable the resident
+confirms their own photo manually. Either way a photo is mandatory: the
+`security definer` `verify_and_close(owner, report_id, after_url, source, now)`
+RPC raises if `after_url` is empty, so a closure without evidence is impossible
+even at the SQL layer. This is the deliberate reversal of the original
+owner-only close — the anti-fraud guarantee moved from *identity* to *evidence*.
+
+### Social posting (Bluesky/X)
+
+Escalations and status updates post to a public account so silence has an
+audience. `postSocial()` (`src/lib/social.ts`) tries **Bluesky first**
+(`src/lib/bluesky-client.ts`, AT Protocol, free — a handle + app password, no
+credits, no approval), then **X** (`src/lib/x-client.ts`, OAuth 1.0a — but X now
+requires paid posting credits), then records the post as **simulated** so the
+in-app Namma Chennai timeline always shows it. The photo attaches natively; the
+post links back with the platform noted. Fires on manual escalate, the
+auto-escalation sweep, and every status change (including from real email
+replies, server-side). `public_posts` (`0007`, `source` extended in `0008`)
+stores each post with its platform + URL.
+
+> X posting is wired and correct — a live test authenticated and reached the API
+> — but returns `402 credits-depleted` on the free tier. Bluesky is the working
+> free path; the hybrid means no code changes when credits are added.
 
 ## Demo
 
-- **Demo clock** (header) compresses time so 1 second = 1 hour. `CA-4520` is
-  seeded at 47h59m into a 48h SLA — flip the clock and it breaches, escalates,
-  and posts live.
-- **Agent Trace** (right panel) streams triage → routing → authority → SLA →
-  filing as it happens.
-- **Routing reveal**: report from Chennai for a Tier 1 ward hit; report from
-  elsewhere to watch it degrade honestly.
-- **Refusal 1**: open a `claims_done` pin → *Submit an after-photo* → choose
-  "Still there, detector missed it."
-- **Refusal 2**: on an overdue report → *Escalate publicly* → type
-  "the corrupt minister ignores our ward."
-- **The dodge**: open any report → *Simulate a reply* → "Jurisdiction transfer"
-  and watch the clock refuse to reset.
-- **Dedup**: file a second report within ~20m of an existing pothole.
-- **Outbox**: shows the actual composed complaint, with intended vs. actual
-  recipient.
-- **Tamil toggle** in the header.
+The whole loop is real and end-to-end:
 
-State persists to Postgres against your account, so a refresh — or a different
-device — doesn't lose anything. **Reset my ledger** in the account menu wipes
-your reports and restores the seeded caseload between runs.
+1. **File** a report (photo redacted on-device, category + severity identified,
+   ward + agencies resolved before you commit) → a **real complaint email** is
+   sent over Gmail to the demo authority mailbox, with the redacted photo.
+2. **Reply** to that email as the authority → the app polls the inbox, runs the
+   correspondence handler server-side, updates the ticket, and sends an
+   **auto-response** — and a status update posts to **Bluesky**.
+3. **Verify** with a photo (as any resident) → `/api/verify-image` checks it →
+   the case closes as `verified_fixed`. A wrong-place photo is rejected.
+4. **Escalate**: flip the **Demo clock** (1s = 1h) so an open report breaches its
+   SLA → it auto-escalates → a **real public post** goes out with the photo.
+5. Watch it fill the public feed at `bsky.app/profile/<your handle>`.
+
+Other beats: the **Agent Trace** drawer streams triage → routing → authority →
+SLA → filing; the **routing reveal** (a Chennai coordinate hits a Tier-1 ward,
+elsewhere degrades honestly to a general fallback); the **escalation refusal**
+(type "the corrupt minister ignores our ward" and watch it get stripped); the
+**dodge** (a jurisdiction-transfer reply re-files but the clock refuses to
+reset); **dedup**; the **Outbox** (intended vs. actual recipient); and the
+**Tamil toggle**.
+
+State persists to Postgres, so a refresh or another device loses nothing.
+**Reset my ledger** (account menu) wipes your reports back to a clean slate.
 
 ## Sandboxing
 
-Nothing is sent to real government addresses or municipal handles. Filing goes to
-a demo inbox (`DEMO_INBOX`); escalation posts to our own demo account about
-seeded data. Unverified contact addresses are flagged `verified: false` in
-`src/lib/authorities.ts` and never presented as real.
+Mail and posts are now sent **for real**, but only to targets we control —
+never a real `.gov.in` address or an official municipal handle. Complaints go to
+`DEMO_AUTHORITY_EMAIL` (a mailbox we own), and the intended role-based alias
+stays visible as `intended_to` in the Outbox. Public posts go to our **own**
+Bluesky account. Unverified contacts are flagged `verified: false` in
+`src/lib/authorities.ts` and never presented as real. The escalation guardrails
+(institutions not individuals, no corruption allegations, political firewall)
+apply to every post regardless of platform.
 
 ## Stack
 
 Next.js 16.2.10 (Turbopack) · React 19 · Supabase (Postgres, Auth, Storage) ·
-MapLibre GL · Turf · Tailwind v4.
+MapLibre GL · Turf · Tailwind v4. **Gemini** for category + after-photo
+verification · **Gmail** SMTP/IMAP via `nodemailer` + `imapflow` + `mailparser`
+· **Bluesky** via `@atproto/api` (`twitter-api-v2` for the X path) ·
+**TensorFlow.js / BlazeFace** for on-device face redaction.
 
 > Auth runs through `src/proxy.ts`. Next 16 renamed Middleware to Proxy; the
 > file must sit at `src/proxy.ts`, beside `app/`. It refreshes the Supabase
@@ -403,7 +469,27 @@ MapLibre GL · Turf · Tailwind v4.
 
 > PWA is framework-native (`src/app/manifest.ts` + hand-written `public/sw.js`).
 > **Do not add `next-pwa` or Serwist** — Next 16 defaults to Turbopack and fails
-> the build outright when a webpack config is present.
+> the build outright when a webpack config is present. The service worker only
+> registers in a **production build** (dev unregisters it to avoid stale caches).
+
+## Deployment (installable PWA)
+
+Deployed on **Vercel** — a production build serves the manifest + service worker
+over HTTPS, so the app is an **installable PWA** ("Add to Home Screen" on
+iOS/Android, opens fullscreen like a native app).
+
+```bash
+vercel link --project <name>     # once
+# push every var from .env.local to the project (Production), then:
+vercel --prod
+```
+
+All of `.env.local` must be set as Vercel env vars (Supabase, Gmail, Gemini,
+Bluesky). Gmail SMTP/IMAP, Bluesky posting and the inbound poll all run from
+Vercel Functions unchanged; the inbound sweep is driven by the in-app poll (a
+cron can also hit `/api/inbound/poll` with `INBOUND_POLL_SECRET`). Email/password
+login needs no redirect config; Google sign-in needs the deployed origin added
+to Supabase → Authentication → URL Configuration.
 
 ## Not built (deliberately)
 
@@ -412,5 +498,3 @@ TCCCPR (as amended 12 Feb 2025) requires DLT registration and 1600-series
 numbering with no AI exemption, while MeitY's IT Amendment Rules 2026 require
 provenance labelling on synthetic audio. Beyond legality: one viral clip of a bot
 badgering a junior engineer would end the product.
-#   N a m m a C i t y  
- 
