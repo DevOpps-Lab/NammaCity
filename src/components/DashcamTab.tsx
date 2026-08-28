@@ -4,12 +4,17 @@
  * DASHCAM MODE
  *
  * Upload a video simulating a drive. It plays hidden behind a canvas that
- * mirrors every frame; Roboflow inferencejs (on-device) runs against that
- * canvas in a requestAnimationFrame loop, and detections are drawn back onto
- * it as boxes + confidence scores. A pothole seen above 40% confidence is
- * captured into a local Draft Queue, throttled to at most one capture every
- * 3 seconds so one pothole visible for several seconds of footage doesn't
- * flood the queue with near-duplicates.
+ * mirrors every frame; a Hugging Face zero-shot object detector (OWL-ViT, via
+ * @huggingface/transformers, on-device) runs against that canvas in a
+ * requestAnimationFrame loop, and detections are drawn back onto it as boxes
+ * + confidence scores. A pothole seen above 40% confidence is captured into a
+ * local Draft Queue, throttled to at most one capture every 3 seconds so one
+ * pothole visible for several seconds of footage doesn't flood the queue
+ * with near-duplicates.
+ *
+ * The detector's quantized weights are a real ~127MB one-time download
+ * (browser-cached after that) — loaded as soon as this tab mounts, with a
+ * progress bar, so the wait is visible rather than looking frozen.
  *
  * Filing is NOT reimplemented here. Clicking a queue frame hands it to the
  * exact same ReportTab a manual citizen report goes through (category
@@ -20,7 +25,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Icon from "./Icon";
-import { dashcamConfigured, detectPotholes, type DashcamDetection } from "@/lib/dashcam-detect";
+import {
+  loadDetector,
+  detectPotholes,
+  type DashcamDetection,
+  type DetectorProgress,
+} from "@/lib/dashcam-detect";
 
 interface DraftFrame {
   id: string;
@@ -43,9 +53,37 @@ export default function DashcamTab({
   /** Hands a captured frame to the standard report flow. Never files directly. */
   onOpenReport: (file: File) => void;
 }) {
+  const [detectorState, setDetectorState] = useState<"loading" | "ready" | "error">("loading");
+  const [detectorProgress, setDetectorProgress] = useState<number | null>(null);
   const [driving, setDriving] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [frames, setFrames] = useState<DraftFrame[]>([]);
+
+  // Doesn't reset state itself — called once on mount (defaults are already
+  // "loading"/null) and from the Retry button (which resets state itself,
+  // synchronously, in its own click handler rather than here).
+  const beginDetectorLoad = useCallback(() => {
+    loadDetector((info: DetectorProgress) => {
+      // Some progress events omit `progress` entirely (upstream quirk) —
+      // stay on the indeterminate spinner rather than showing NaN%.
+      if (typeof info.progress === "number") setDetectorProgress(info.progress);
+    })
+      .then(() => setDetectorState("ready"))
+      .catch((err) => {
+        console.warn("[DashcamTab] pothole detector failed to load:", err);
+        setDetectorState("error");
+      });
+  }, []);
+
+  const retryDetectorLoad = useCallback(() => {
+    setDetectorState("loading");
+    setDetectorProgress(null);
+    beginDetectorLoad();
+  }, [beginDetectorLoad]);
+
+  useEffect(() => {
+    beginDetectorLoad();
+  }, [beginDetectorLoad]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -202,16 +240,40 @@ export default function DashcamTab({
     [onOpenReport]
   );
 
-  if (!dashcamConfigured()) {
+  if (detectorState === "error") {
     return (
       <Shell>
-        <div className="rise-in rounded-2xl border border-[var(--warning)]/35 bg-[var(--warning)]/10 p-5 text-center">
-          <Icon name="video" size={28} className="mx-auto mb-3 text-[var(--warning)]" />
-          <p className="text-[14px] font-semibold">Dashcam detection isn&apos;t configured</p>
+        <div className="rise-in rounded-2xl border border-[var(--danger)]/35 bg-[var(--danger)]/10 p-5 text-center">
+          <Icon name="alert" size={28} className="mx-auto mb-3 text-[var(--danger)]" />
+          <p className="text-[14px] font-semibold">Couldn&apos;t load the pothole detector</p>
           <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--text-dim)]">
-            Set NEXT_PUBLIC_ROBOFLOW_API_KEY and NEXT_PUBLIC_ROBOFLOW_MODEL to enable real-time
-            pothole detection here. Every other tab works normally without it.
+            The detection model (~127MB, downloaded once) didn&apos;t finish loading — usually a
+            network hiccup. Every other tab works normally without it.
           </p>
+          <button
+            onClick={retryDetectorLoad}
+            className="mt-3 rounded-lg border border-[var(--border)] px-3 py-1.5 text-[12px] font-medium text-[var(--text-dim)] hover:border-[var(--border-strong)] hover:text-[var(--text)]"
+          >
+            Retry
+          </button>
+        </div>
+      </Shell>
+    );
+  }
+
+  if (detectorState === "loading") {
+    return (
+      <Shell>
+        <div className="rise-in flex flex-col items-center justify-center gap-4 py-24 text-center">
+          <span className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--surface-3)] border-t-[var(--accent)]" />
+          <div>
+            <p className="text-[14px] font-semibold">Preparing the pothole detector…</p>
+            <p className="mt-1 text-[12px] text-[var(--text-dim)]">
+              {typeof detectorProgress === "number"
+                ? `Downloading detection model… ${Math.round(detectorProgress)}%`
+                : "One-time download (~127MB), cached after this."}
+            </p>
+          </div>
         </div>
       </Shell>
     );
