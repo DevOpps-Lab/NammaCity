@@ -50,13 +50,16 @@ interface DraftFrame {
 }
 
 /**
- * Roughly how many frames to sample across the whole clip. Sampling adapts to
- * clip length so scan time stays bounded instead of scaling without limit: a
- * 15s clip lands on ~0.25s steps, a 2min clip on 1s steps.
+ * Wall-clock budget for a whole scan. Per-frame cost varies by more than an
+ * order of magnitude between the WebGPU and wasm paths (measured ~600ms per
+ * tile on wasm, three tiles per frame), so a fixed sample count cannot honour a
+ * time budget. Instead the first analysed frame is timed and the step is chosen
+ * from that, then refined as the average settles.
  */
-const TARGET_SAMPLES = 60;
-const MIN_STEP_S = 0.15;
-const MAX_STEP_S = 1.0;
+const SCAN_BUDGET_MS = 30_000;
+const MIN_SAMPLES = 6;
+const MAX_SAMPLES = 60;
+const MIN_STEP_S = 0.2;
 
 /**
  * Minimum gap between captures, in VIDEO seconds — not wall clock. The old code
@@ -233,8 +236,10 @@ export default function DashcamTab({
     setScanDone(false);
     setScanning(true);
 
-    const step = Math.min(MAX_STEP_S, Math.max(MIN_STEP_S, duration / TARGET_SAMPLES));
-    const total = Math.max(1, Math.ceil(duration / step));
+    // Start optimistic (as if on the fast WebGPU path); the real per-frame cost
+    // measured below immediately corrects this, usually after one frame.
+    let step = Math.max(MIN_STEP_S, duration / MAX_SAMPLES);
+    let total = Math.max(1, Math.ceil(duration / step));
     setProgress({ done: 0, total, etaMs: null });
 
     const startedAt = performance.now();
@@ -267,6 +272,19 @@ export default function DashcamTab({
 
       done++;
       const perFrame = (performance.now() - startedAt) / done;
+
+      // Re-fit the remaining scan into the budget from the cost actually
+      // observed on this device. Without this the wasm path (~1.8s/frame)
+      // would take minutes on a clip the WebGPU path finishes in seconds.
+      const remainingMs = Math.max(0, SCAN_BUDGET_MS - (performance.now() - startedAt));
+      const affordable = Math.floor(remainingMs / perFrame);
+      const remainingDuration = duration - t - step;
+      if (remainingDuration > 0) {
+        const wanted = Math.max(MIN_SAMPLES - done, affordable);
+        step = Math.max(MIN_STEP_S, remainingDuration / Math.max(1, wanted));
+        total = done + Math.max(1, Math.ceil(remainingDuration / step));
+      }
+
       setProgress({ done, total, etaMs: Math.max(0, (total - done) * perFrame) });
     }
 

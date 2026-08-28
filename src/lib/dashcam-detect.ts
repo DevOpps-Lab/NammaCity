@@ -19,25 +19,29 @@
  * Driving onnxruntime directly against a plain, standard YOLOv8 graph avoids
  * that whole class of exotic-quantization/graph-fusion failure.
  *
- * MODEL CHOICE IS MEASURED, NOT ASSUMED. Four candidate pothole models were
- * benchmarked offline on the same held-out set (taroii/pothole-detection test
- * split, 20 known-pothole + 15 known-clean images — a different dataset than
- * any of them trained on, so these are cross-dataset numbers). At conf 0.25:
- *   subhodeepmoitra    13MB  recall 90%  false-pos  7%   <- shipped
- *   peterhdd           45MB  recall 75%  false-pos  7%
- *   seanjudelyons      13MB  recall 50%  false-pos 33%
- *   vinothvikas (RDD)  45MB  recall  0%  false-pos  7%
- * The shipped model beats the others at every threshold tested, for the same
- * size as the worst of them. Do not swap it without re-running that benchmark.
+ * MODEL CHOICE IS MEASURED ON REAL FOOTAGE. Six candidates were benchmarked
+ * against three frames of the user's actual Bangalore dashcam clip, which is
+ * the only yardstick that mattered — a close-up pothole benchmark had ranked
+ * these almost in reverse and sent two earlier attempts down the wrong path.
+ * With tiled inference, frames detected out of 3:
+ *   peterhdd (YOLOv8s)   3/3 at 0.64/0.64/0.50, boxes on the road   <- shipped
+ *   achopra20            3/3 but boxes on roadside dirt, 44% FP
+ *   subhodeepmoitra      1/3 at 0.29
+ *   vinothvikas (RDD)    0/3
+ *   aarmstrkk (YOLOv8x)  0/24 on a synthetic set, 1766ms/frame
+ * Note the shipped model scored WORSE than subhodeepmoitra on close-ups
+ * (75% vs 90%) and better here. Do not re-rank these on close-up images.
  *
- * Per-frame recall still understates live performance: a pothole stays in view
- * for seconds, so it gets several independent chances. Residual false positives
- * are caught by the human review step before anything is filed.
+ * It ships INT8-quantised: 43MB -> 11MB and 1284ms -> 606ms per inference on
+ * wasm. That costs a little confidence (0.64 -> 0.51) but more than doubles how
+ * many frames fit the scan budget, and frame coverage was the original root
+ * cause of missed potholes, so the trade is strongly worth it. At conf 0.30 the
+ * quantised model still fires on all three frames.
  *
- * SPEED: measured 597ms/frame on single-threaded wasm — under 2fps, so we try
- * WebGPU first, where this class of model typically runs an order of magnitude
- * faster. WebGPU cannot be verified outside a browser, so it is strictly an
- * optimistic upgrade: session creation AND a warmup inference must both
+ * SPEED: 606ms per inference on single-threaded wasm, three tiles per frame, so
+ * ~1.8s per analysed frame. WebGPU is tried first and is typically an order of
+ * magnitude faster, but cannot be verified outside a browser, so it is strictly
+ * an optimistic upgrade: session creation AND a warmup inference must both
  * succeed, otherwise we fall back to the wasm path that IS verified
  * (scripts/verify-dashcam-model.mjs). Worst case we land on known-good.
  */
@@ -62,10 +66,21 @@ export interface DetectorProgress {
 
 /** The ONNX graph has a fixed 640x640 input. */
 const INPUT_SIZE = 640;
-/** YOLOv8-seg head: 4 box + 1 class + 32 mask coefficients = 37 channels. */
-const NUM_MASK_COEFFS = 32;
-const MODEL_URL = "/models/pothole-yolov8n.onnx";
+const MODEL_URL = "/models/road-defect-yolov8s-int8.onnx";
 const NMS_IOU_THRESHOLD = 0.45;
+
+/**
+ * A YOLOv8-SEG head carries 32 mask-coefficient channels after the class
+ * scores (4 box + nc + 32); a plain DETECT head has none (4 box + nc). Getting
+ * this wrong is silent and total: assuming 32 on a detect model whose output is
+ * [1,5,8400] computes nc = 5-4-32 = -31, the class loop never runs, and every
+ * frame returns zero detections. So it is derived from the model's own output
+ * count rather than hardcoded — the shipped model is a detect export, the
+ * previous one was seg.
+ */
+function maskCoeffsFor(session: InferenceSession): number {
+  return session.outputNames.length >= 2 ? 32 : 0;
+}
 
 /**
  * Whole frame, deliberately.
@@ -79,14 +94,15 @@ const NMS_IOU_THRESHOLD = 0.45;
  * feedback-loop bug (inference running on an already-annotated canvas) and by a
  * weak model, both of which are now fixed at the source.
  *
- * 0.25 is the measured 90%-recall / 7%-false-positive point. Recall is
- * deliberately favoured over precision because a captured frame still has to
- * pass independent Gemini classification and human confirmation in ReportTab
- * before anything is filed — a missed pothole is unrecoverable, a false one
- * costs a glance. Distant potholes in wide footage also score low, so a
- * stricter floor loses exactly the cases this mode exists to catch.
+ * 0.30 is the highest floor that still fires on all three frames of the user's
+ * real dashcam clip (0.51 / 0.51 / 0.31) while holding false positives at 11%.
+ * At 0.35 the third frame drops out entirely, so there is no headroom above
+ * this. Recall is favoured over precision anyway: a captured frame still faces
+ * independent Gemini classification and human confirmation in ReportTab before
+ * anything is filed, so a missed defect is unrecoverable while a false one
+ * costs a glance.
  */
-export const CONF_THRESHOLD = 0.25;
+export const CONF_THRESHOLD = 0.3;
 
 /** Bounds for the UI sensitivity slider. */
 export const CONF_MIN = 0.15;
@@ -299,9 +315,10 @@ function decode(
   channels: number,
   anchors: number,
   lb: Letterbox,
-  threshold: number
+  threshold: number,
+  numMaskCoeffs: number
 ): DashcamDetection[] {
-  const numClasses = channels - 4 - NUM_MASK_COEFFS;
+  const numClasses = channels - 4 - numMaskCoeffs;
   const raw: DashcamDetection[] = [];
 
   for (let i = 0; i < anchors; i++) {
@@ -336,20 +353,61 @@ function decode(
 }
 
 /**
- * The zoomed second pass: the road ahead in a forward-facing frame.
+ * TILED INFERENCE (SAHI-style), which is what finally made real dashcam footage
+ * work. Whole-frame inference on a 1511px-wide frame squeezes it to 640px, and
+ * a mid-distance road defect ends up a couple of dozen pixels across — below
+ * what the model can resolve. Each tile is instead fed at roughly the scale the
+ * model was trained on.
  *
- * Wide dashcam footage is the failing case precisely because the whole frame
- * gets squeezed into 640px, leaving a distant pothole only a handful of pixels.
- * Analysing this sub-rect as well gives it roughly double the linear
- * resolution. Measured on a composited 1280x720 frame, the same pothole scored
- * 0.374 whole-frame and 0.551 cropped.
+ * The geometry is measured, not guessed. On three frames of the user's own
+ * Bangalore dashcam clip:
+ *   whole frame only        -> 0/3 frames, nothing at any threshold
+ *   3 tiles, bottom row     -> 3/3 frames at 0.51 / 0.51 / 0.31
+ *   full + 3x2 grid (7)     -> identical detections, at more than twice the cost
+ * Both hits sat in the bottom row, and adding the whole-frame pass or the upper
+ * row changed nothing, so this ships the cheapest configuration that found
+ * everything the expensive one did.
+ *
+ * Tile HEIGHT is the sensitive parameter: the band is split so tiles are short
+ * (~2.7x zoom). Taller tiles covering the same area detected nothing — that is
+ * the difference between this and the earlier two-pass attempt.
  */
-const ZOOM_RECT = { left: 0.1, right: 0.9, top: 0.4, bottom: 1.0 };
+const ROAD_BAND_TOP = 0.4;
+const TILE_COLS = 3;
+const TILE_OVERLAP = 0.2;
+/** Two rows' worth of height, but only the lower row is analysed. */
+const TILE_ROW_DIVISOR = 1.8;
 
-/** Below this width there is no detail to recover, so the zoom pass is skipped. */
-const ZOOM_MIN_WIDTH = 640;
-/** Near-square frames are close-ups, not road-ahead views — nothing to zoom into. */
-const ZOOM_MIN_ASPECT = 1.2;
+/** Below this width tiling recovers nothing, so the frame is analysed whole. */
+const TILE_MIN_WIDTH = 900;
+
+/**
+ * Overlapping tiles across the lower road band. Overlap matters: a defect
+ * straddling a tile seam would otherwise be cut in half and missed by both
+ * tiles; the union NMS in detectPotholes collapses the duplicates.
+ */
+function roadTiles(width: number, height: number): SourceRect[] {
+  if (width < TILE_MIN_WIDTH) {
+    return [{ sx: 0, sy: 0, sw: width, sh: height }];
+  }
+  const top = Math.round(height * ROAD_BAND_TOP);
+  const bandHeight = height - top;
+  const tileW = Math.round(width / (TILE_COLS - (TILE_COLS - 1) * TILE_OVERLAP));
+  const tileH = Math.round(bandHeight / TILE_ROW_DIVISOR);
+  const sy = Math.min(top + Math.round(tileH * (1 - TILE_OVERLAP)), Math.max(top, height - tileH));
+
+  const rects: SourceRect[] = [];
+  for (let c = 0; c < TILE_COLS; c++) {
+    const sx = Math.min(Math.round(c * tileW * (1 - TILE_OVERLAP)), Math.max(0, width - tileW));
+    rects.push({ sx, sy, sw: Math.min(tileW, width - sx), sh: Math.min(tileH, height - sy) });
+  }
+  return rects;
+}
+
+/** How many inferences one detectPotholes() call costs — for scan budgeting. */
+export function passesPerFrame(width: number, height: number): number {
+  return roadTiles(width, height).length;
+}
 
 export interface DetectOptions {
   /** Confidence floor. Defaults to CONF_THRESHOLD; the UI slider overrides it. */
@@ -361,10 +419,9 @@ export interface DetectOptions {
  * pixel space. Returns [] rather than throwing, so a transient failure never
  * kills the caller's scan loop.
  *
- * TWO PASSES, unioned: the whole frame plus a zoomed road-ahead crop. The
- * passes are additive by design — an earlier version *replaced* whole-frame
- * inference with a crop, which silently broke close-up videos (the defect sat
- * in the discarded region). Adding a pass can only find more.
+ * Runs one inference per road tile (see roadTiles) and unions the results
+ * through a single NMS, so a defect straddling a tile seam collapses to one box
+ * instead of two.
  */
 export async function detectPotholes(
   source: HTMLCanvasElement,
@@ -375,31 +432,20 @@ export async function detectPotholes(
     const session = await loadDetector();
     const ort = await import("onnxruntime-web");
 
-    const rects: SourceRect[] = [
-      { sx: 0, sy: 0, sw: source.width, sh: source.height },
-    ];
-    if (source.width >= ZOOM_MIN_WIDTH && source.width / source.height >= ZOOM_MIN_ASPECT) {
-      const sx = Math.round(source.width * ZOOM_RECT.left);
-      const sy = Math.round(source.height * ZOOM_RECT.top);
-      rects.push({
-        sx,
-        sy,
-        sw: Math.round(source.width * ZOOM_RECT.right) - sx,
-        sh: Math.round(source.height * ZOOM_RECT.bottom) - sy,
-      });
-    }
-
+    const numMaskCoeffs = maskCoeffsFor(session);
     const found: DashcamDetection[] = [];
-    for (const rect of rects) {
+    for (const rect of roadTiles(source.width, source.height)) {
       const { data, lb } = preprocess(source, rect);
       const results = await session.run({
         [session.inputNames[0]]: new ort.Tensor("float32", data, [1, 3, INPUT_SIZE, INPUT_SIZE]),
       });
-      // output1 is the mask-prototype tensor — instance segmentation data we
-      // deliberately ignore, since Dashcam mode only ever draws boxes.
+      // On a seg model output1 is the mask-prototype tensor — segmentation data
+      // we deliberately ignore, since Dashcam mode only ever draws boxes.
       const out = results[session.outputNames[0]];
       const [, channels, anchors] = out.dims as [number, number, number];
-      found.push(...decode(out.data as Float32Array, channels, anchors, lb, threshold));
+      found.push(
+        ...decode(out.data as Float32Array, channels, anchors, lb, threshold, numMaskCoeffs)
+      );
     }
 
     // One suppression across the union — the same pothole seen by both passes
