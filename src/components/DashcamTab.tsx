@@ -4,17 +4,18 @@
  * DASHCAM MODE
  *
  * Upload a video simulating a drive. It plays hidden behind a canvas that
- * mirrors every frame; a Hugging Face zero-shot object detector (OWL-ViT, via
- * @huggingface/transformers, on-device) runs against that canvas in a
+ * mirrors every frame; a purpose-trained YOLOv8n pothole model (via
+ * onnxruntime-web, on-device) runs against that canvas in a
  * requestAnimationFrame loop, and detections are drawn back onto it as boxes
  * + confidence scores. A pothole seen above 40% confidence is captured into a
  * local Draft Queue, throttled to at most one capture every 3 seconds so one
  * pothole visible for several seconds of footage doesn't flood the queue
  * with near-duplicates.
  *
- * The detector's quantized weights are a real ~155MB one-time download
- * (browser-cached after that) — loaded as soon as this tab mounts, with a
- * progress bar, so the wait is visible rather than looking frozen.
+ * First use costs a ~40MB one-time download (our 13MB model from /public, plus
+ * onnxruntime's ~27MB WASM/WebGPU runtime), browser-cached afterwards. It
+ * starts as soon as this tab mounts and reports real progress, because a
+ * 40MB silent wait is indistinguishable from a hang.
  *
  * Filing is NOT reimplemented here. Clicking a queue frame hands it to the
  * exact same ReportTab a manual citizen report goes through (category
@@ -55,6 +56,10 @@ export default function DashcamTab({
 }) {
   const [detectorState, setDetectorState] = useState<"loading" | "ready" | "error">("loading");
   const [detectorProgress, setDetectorProgress] = useState<number | null>(null);
+  // Two distinct waits worth naming: our 13MB model download (which we can
+  // measure) and onnxruntime's own ~27MB WASM/WebGPU runtime plus warmup
+  // (which it fetches internally, so we can only say it's happening).
+  const [detectorPhase, setDetectorPhase] = useState<"download" | "initializing">("download");
   const [driving, setDriving] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [frames, setFrames] = useState<DraftFrame[]>([]);
@@ -64,8 +69,9 @@ export default function DashcamTab({
   // synchronously, in its own click handler rather than here).
   const beginDetectorLoad = useCallback(() => {
     loadDetector((info: DetectorProgress) => {
-      // Some progress events omit `progress` entirely (upstream quirk) —
-      // stay on the indeterminate spinner rather than showing NaN%.
+      if (info.status === "initializing") setDetectorPhase("initializing");
+      // Some progress events omit `progress` entirely — stay on the
+      // indeterminate spinner rather than showing NaN%.
       if (typeof info.progress === "number") setDetectorProgress(info.progress);
     })
       .then(() => setDetectorState("ready"))
@@ -78,6 +84,7 @@ export default function DashcamTab({
   const retryDetectorLoad = useCallback(() => {
     setDetectorState("loading");
     setDetectorProgress(null);
+    setDetectorPhase("download");
     beginDetectorLoad();
   }, [beginDetectorLoad]);
 
@@ -247,8 +254,8 @@ export default function DashcamTab({
           <Icon name="alert" size={28} className="mx-auto mb-3 text-[var(--danger)]" />
           <p className="text-[14px] font-semibold">Couldn&apos;t load the pothole detector</p>
           <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--text-dim)]">
-            The detection model (~155MB, downloaded once) didn&apos;t finish loading — usually a
-            network hiccup. Every other tab works normally without it.
+            The detector didn&apos;t finish loading — usually a network hiccup on the one-time
+            ~40MB download. Every other tab works normally without it.
           </p>
           <button
             onClick={retryDetectorLoad}
@@ -266,12 +273,25 @@ export default function DashcamTab({
       <Shell>
         <div className="rise-in flex flex-col items-center justify-center gap-4 py-24 text-center">
           <span className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--surface-3)] border-t-[var(--accent)]" />
-          <div>
+          <div className="w-full max-w-[260px]">
             <p className="text-[14px] font-semibold">Preparing the pothole detector…</p>
             <p className="mt-1 text-[12px] text-[var(--text-dim)]">
-              {typeof detectorProgress === "number"
-                ? `Downloading detection model… ${Math.round(detectorProgress)}%`
-                : "One-time download (~155MB), cached after this."}
+              {detectorPhase === "initializing"
+                ? "Starting the detection engine…"
+                : typeof detectorProgress === "number"
+                  ? `Downloading detection model… ${Math.round(detectorProgress)}%`
+                  : "One-time download, cached after this."}
+            </p>
+            {detectorPhase === "download" && typeof detectorProgress === "number" && (
+              <div className="mt-2.5 h-1 w-full overflow-hidden rounded-full bg-[var(--surface-3)]">
+                <div
+                  className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-200"
+                  style={{ width: `${Math.round(detectorProgress)}%` }}
+                />
+              </div>
+            )}
+            <p className="mt-2 text-[11px] text-[var(--text-faint)]">
+              ~40MB total, once per browser
             </p>
           </div>
         </div>
