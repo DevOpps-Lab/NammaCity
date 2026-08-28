@@ -189,11 +189,26 @@ if (filedToken && SUPA_URL && SERVICE_KEY) {
   const db = createClient(SUPA_URL, SERVICE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const { data: report } = await db
+  /**
+   * Counts rows, and treats a query ERROR as a failure rather than as zero.
+   * An earlier version destructured only `count`, so a failing query looked
+   * identical to a missing row — it reported the complaint outbox row as
+   * absent when it was actually there.
+   */
+  const countRows = async (table, filters) => {
+    let q = db.from(table).select("*", { count: "exact", head: true });
+    for (const [col, val] of Object.entries(filters)) q = q.eq(col, val);
+    const { count, error } = await q;
+    if (error) return { count: null, error: error.message };
+    return { count: count ?? 0, error: null };
+  };
+
+  const { data: report, error: reportErr } = await db
     .from("reports")
     .select("id, user_id, source, is_seed, status, category, lat, lng, filed_to, photo_url")
     .eq("public_token", filedToken)
     .maybeSingle();
+  if (reportErr) bad(`report query failed: ${reportErr.message}`);
 
   if (check(Boolean(report), "report row exists for that token")) {
     check(report.source === "whatsapp", `source is 'whatsapp' (got ${report.source})`);
@@ -201,27 +216,33 @@ if (filedToken && SUPA_URL && SERVICE_KEY) {
     check(report.status === "filed", `status is 'filed' (got ${report.status})`);
     check(Boolean(report.photo_url), "photo_url is set");
 
-    const { count: timeline } = await db
-      .from("timeline_events")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", report.user_id)
-      .eq("report_id", report.id);
-    check((timeline ?? 0) > 0, `timeline rows written (${timeline})`);
+    const timeline = await countRows("timeline_events", {
+      user_id: report.user_id,
+      report_id: report.id,
+    });
+    check(
+      timeline.error === null && timeline.count > 0,
+      `timeline rows written (${timeline.error ?? timeline.count})`
+    );
 
-    const { count: outbox } = await db
-      .from("outbox_items")
-      .select("*", { count: "exact", head: true })
-      .eq("user_id", report.user_id)
-      .eq("report_id", report.id)
-      .eq("kind", "complaint");
-    check((outbox ?? 0) > 0, `complaint composed in the outbox (${outbox})`);
+    const outbox = await countRows("outbox_items", {
+      user_id: report.user_id,
+      report_id: report.id,
+      kind: "complaint",
+    });
+    check(
+      outbox.error === null && outbox.count > 0,
+      `complaint composed in the outbox (${outbox.error ?? outbox.count})`
+    );
   }
 
-  const { count: leftover } = await db
-    .from("whatsapp_sessions")
-    .select("*", { count: "exact", head: true })
-    .eq("phone_hash", crypto.createHash("sha256").update(PHONE).digest("hex"));
-  check(leftover === 0, "pending session cleared after filing");
+  const leftover = await countRows("whatsapp_sessions", {
+    phone_hash: crypto.createHash("sha256").update(PHONE).digest("hex"),
+  });
+  check(
+    leftover.error === null && leftover.count === 0,
+    `pending session cleared after filing (${leftover.error ?? leftover.count})`
+  );
 } else if (!SUPA_URL || !SERVICE_KEY) {
   console.log("  - skipped (no Supabase service-role credentials in .env.local)");
 }
