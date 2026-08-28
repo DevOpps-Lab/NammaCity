@@ -137,6 +137,30 @@ export async function fetchReportByOwner(
   return data ? rowToReport(data as unknown as ReportRow) : null;
 }
 
+/**
+ * One report by its public token, for the unauthenticated /track page.
+ *
+ * The token exists because the PK is (user_id, id) and ids repeat across
+ * accounts, so a bare id addresses nothing — and because ids come from a
+ * sequence, which would let anyone handed one link walk the rest. Called
+ * through the service-role client: every RLS policy is owner-scoped, so the
+ * anon key reads zero rows, and a citizen who filed over WhatsApp has no
+ * session at all. The token IS the authorisation here, which is why it is a
+ * uuid and not something guessable.
+ */
+export async function fetchReportByToken(db: DB, token: string): Promise<Report | null> {
+  const { data, error } = await db
+    .from("reports")
+    .select(`${REPORT_COLUMNS}, source`)
+    .eq("public_token", token)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  const source = (data as { source?: "app" | "whatsapp" }).source ?? "app";
+  return { ...rowToReport(data as unknown as ReportRow), source };
+}
+
 export async function fetchOutbox(db: DB): Promise<OutboxItem[]> {
   const { data, error } = await db
     .from("outbox_items")

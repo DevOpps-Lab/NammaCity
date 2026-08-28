@@ -1,0 +1,380 @@
+import crypto from "node:crypto";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import * as db from "../db";
+import { fileReport, type PipelineDeps } from "../pipeline";
+import { resolveAuthority } from "../routing";
+import type { AuthorityRecord } from "../authorities";
+import { toSeverity } from "../severity";
+import { analyseImage, visionConfigured } from "../vision";
+import { stripJpegMetadata } from "../exif";
+import { sendMail, gmailConfigured, normalizeMessageId } from "../email/gmail";
+import { complaintTextToHtml } from "../email/render";
+import type { ProcessedImage } from "../imaging";
+import type { DetectionResult } from "../detect";
+import type { IssueCategory, Report } from "../types";
+import { categoryLabel } from "../categories";
+import {
+  clearPending,
+  getPending,
+  setPending,
+  withinCooldown,
+  type PendingReport,
+} from "./session";
+import { hashPhone, downloadTwilioMedia } from "./twilio";
+
+/**
+ * WHATSAPP INTAKE — the civic half, with nothing Twilio-shaped in it.
+ *
+ * This deliberately reuses `fileReport` from `src/lib/pipeline.ts` rather than
+ * reimplementing filing. That function turned out to be server-safe already: no
+ * `"use client"`, and every side effect goes through injected deps. So a report
+ * filed from WhatsApp travels the same code path as one filed in the app —
+ * same sequence-minted id, same tiered ward routing, same SLA source, same
+ * complaint text, same outbox row. If the two diverged, the WhatsApp path would
+ * quietly become a second-class citizen with its own bugs.
+ *
+ * What could NOT be reused, and why:
+ *   - `pipeline.locate()` needs navigator.geolocation. The pin supplies it.
+ *   - `pipeline.resolveAuthority()` fetches a relative URL. `lib/routing.ts` is
+ *     already server-only, so this calls it directly and skips the HTTP hop.
+ *   - `store.dispatchReport()` posts to /api/dispatch, which is cookie-gated.
+ *     Mail goes out inline here, the way correspondence-apply.ts already does.
+ *   - `imaging.ts` (face pixelation, aHash) is canvas-bound. See stripJpegMetadata.
+ */
+
+/** One shared owner for every bot-filed report. */
+const INTAKE_EMAIL = "whatsapp-intake@civicagent.local";
+const INTAKE_NAME = "WhatsApp intake";
+
+let intakeUserIdCache: string | null = null;
+
+/**
+ * `reports.user_id` is NOT NULL with a foreign key to auth.users, so a citizen
+ * with no account cannot own a row. Rather than loosen that constraint, every
+ * WhatsApp report belongs to one service account. Citizens still reach their
+ * own report: the tracking link carries an unguessable `public_token`, which is
+ * what makes the link work without a login at all.
+ */
+export async function getIntakeUserId(admin: SupabaseClient): Promise<string> {
+  if (intakeUserIdCache) return intakeUserIdCache;
+
+  // The profiles row is created by the handle_new_user trigger on signup, so it
+  // is a cheap way to find an existing intake user without paging auth.users.
+  const { data: existing } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("email", INTAKE_EMAIL)
+    .maybeSingle();
+
+  if (existing?.id) {
+    intakeUserIdCache = existing.id as string;
+    return intakeUserIdCache;
+  }
+
+  const { data: created, error } = await admin.auth.admin.createUser({
+    email: INTAKE_EMAIL,
+    email_confirm: true,
+    user_metadata: { display_name: INTAKE_NAME },
+  });
+  if (error || !created?.user) {
+    throw new Error(`Could not provision the WhatsApp intake user: ${error?.message}`);
+  }
+  intakeUserIdCache = created.user.id;
+  return intakeUserIdCache;
+}
+
+export function baseUrl(): string {
+  const explicit = process.env.PUBLIC_BASE_URL;
+  if (explicit) return explicit.replace(/\/$/, "");
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return "http://localhost:3000";
+}
+
+// ------------------------------------------------------------------ replies
+
+export const GREETING = `CivicAgent — report a civic problem in one message.
+
+1. Send a *photo* of the problem (pothole, garbage, sewage, streetlight, drain).
+2. Then share your *location*: tap the 📎 attach button → Location → Send your current location.
+
+We identify it, work out which agency is responsible, file the complaint and give you a link to track it.`;
+
+export const ASK_FOR_PHOTO = `Send a *photo* of the problem first, then share your location.`;
+
+// ------------------------------------------------------------- photo step
+
+export async function handlePhoto(
+  admin: SupabaseClient,
+  phone: string,
+  mediaUrl: string,
+  contentType: string | null,
+  caption: string
+): Promise<string> {
+  const phoneHash = hashPhone(phone);
+
+  const existing = await getPending(admin, phoneHash);
+  if (withinCooldown(existing)) {
+    return `Still working on your last photo — give it a few seconds, then share your location.`;
+  }
+
+  if (contentType && !contentType.startsWith("image/")) {
+    return `That came through as ${contentType}, not a photo. Send a picture of the problem instead.`;
+  }
+
+  let media;
+  try {
+    media = await downloadTwilioMedia(mediaUrl);
+  } catch (err) {
+    console.error("[whatsapp] media download failed", err);
+    return `We couldn't download that image. Please try sending it again.`;
+  }
+
+  if (!media.contentType.startsWith("image/")) {
+    return `That doesn't look like a photo. Send a picture of the problem instead.`;
+  }
+
+  // Metadata removal. Faces cannot be pixelated server-side (imaging.ts is
+  // browser-only), and the report records source='whatsapp' so that gap is
+  // visible rather than implied away.
+  const cleaned =
+    media.contentType === "image/jpeg" ? stripJpegMetadata(media.bytes) : media.bytes;
+
+  const intakeUserId = await getIntakeUserId(admin);
+  const ext = media.contentType === "image/png" ? "png" : "jpg";
+  // A pending key, because there is no report id yet — one is minted only once
+  // the location arrives and the report is actually filed.
+  const path = `${intakeUserId}/pending-${crypto.randomUUID()}.${ext}`;
+
+  const { error: upErr } = await admin.storage
+    .from("report-photos")
+    .upload(path, cleaned, { contentType: media.contentType, upsert: true });
+  if (upErr) {
+    console.error("[whatsapp] photo upload failed", upErr);
+    return `We couldn't save that photo. Please try again in a moment.`;
+  }
+  const photoUrl = admin.storage.from("report-photos").getPublicUrl(path).data.publicUrl;
+
+  // Classify now so the location step is a fast reply rather than a wait.
+  let category: IssueCategory = "other";
+  let severity: PendingReport["severity"] = "moderate";
+  let confidence = 0;
+  let reason = "";
+  let note = "";
+
+  if (visionConfigured()) {
+    const dataUrl = `data:${media.contentType};base64,${Buffer.from(cleaned).toString("base64")}`;
+    const analysis = await analyseImage(dataUrl);
+    if (analysis.ok) {
+      category = analysis.category;
+      severity = analysis.severity;
+      confidence = analysis.confidence;
+      reason = analysis.reason;
+    } else if (analysis.kind === "rateLimited") {
+      note = `\n\n(Our image AI is rate-limited right now, so the category is unconfirmed.)`;
+    } else {
+      note = `\n\n(We couldn't auto-identify it, so the category is unconfirmed.)`;
+    }
+  } else {
+    note = `\n\n(Image AI isn't configured, so the category is unconfirmed.)`;
+  }
+
+  await setPending(admin, {
+    phoneHash,
+    photoUrl,
+    photoPath: path,
+    caption,
+    category,
+    severity,
+    categoryConfidence: confidence,
+    reason,
+  });
+
+  const what =
+    confidence > 0
+      ? `Looks like *${categoryLabel(category)}*${reason ? ` — ${reason}` : ""}.`
+      : `Photo received.`;
+
+  return `${what}${note}
+
+Now share your *location* so we know which ward to file it in:
+tap 📎 → Location → *Send your current location*.`;
+}
+
+// ---------------------------------------------------------- location step
+
+export interface FiledResult {
+  reply: string;
+  report?: Report;
+}
+
+export async function handleLocation(
+  admin: SupabaseClient,
+  phone: string,
+  lat: number,
+  lng: number
+): Promise<FiledResult> {
+  const phoneHash = hashPhone(phone);
+  const pending = await getPending(admin, phoneHash);
+  if (!pending) return { reply: ASK_FOR_PHOTO };
+
+  const intakeUserId = await getIntakeUserId(admin);
+
+  const started = Date.now();
+  const routing = await resolveAuthority(lat, lng, pending.category);
+  const resolveMs = Date.now() - started;
+  const authorities = (routing.authorities ?? []) as AuthorityRecord[];
+
+  if (!authorities.length) {
+    // The same refusal the app makes: we do not invent a recipient.
+    return {
+      reply: `We found your location but have no verified contact for the responsible agency there, so we won't file blind.
+
+Your photo is saved — reply with a different location, or report it in the app.`,
+    };
+  }
+
+  // fileReport only reads dataUrl, aHash, facesFound and bytes off the image.
+  // aHash stays empty: the perceptual hash needs canvas, so hash-based
+  // duplicate detection does not apply to this path (geographic dedup still
+  // does, in the app).
+  const image: ProcessedImage = {
+    dataUrl: pending.photoUrl,
+    width: 0,
+    height: 0,
+    aHash: "",
+    facesFound: 0,
+    manualReviewRequired: true,
+    bytes: 0,
+    faceRegions: [],
+  };
+
+  const detection: DetectionResult = {
+    severity: toSeverity(pending.severity),
+    confidence: pending.categoryConfidence,
+    areaFraction: 0,
+    signals: [
+      `Submitted over WhatsApp — EXIF stripped server-side, faces NOT redacted on device`,
+      pending.reason ? `Gemini: ${pending.reason}` : `Category unconfirmed by vision`,
+    ],
+    lowConfidence: pending.categoryConfidence < 0.45,
+    method: "heuristic-v1",
+  };
+
+  const deps: PipelineDeps = {
+    pushTrace: (line) => console.log(`[whatsapp trace] ${line.agent}: ${line.text}`),
+    mintId: () => db.mintReportId(admin),
+    // The photo is already in storage under a pending key; hand back that URL
+    // rather than re-uploading the bytes we no longer hold.
+    uploadPhoto: async () => pending.photoUrl,
+    addReport: (r) => db.insertReport(admin, r, intakeUserId),
+    pushOutbox: (items) => db.insertOutbox(admin, items, intakeUserId),
+  };
+
+  const report = await fileReport(deps, {
+    image,
+    detection,
+    category: pending.category,
+    categorySource: pending.categoryConfidence > 0 ? "model" : "heuristic",
+    categoryConfidence: pending.categoryConfidence,
+    fix: { lat, lng, exact: true },
+    routing,
+    authorities,
+    resolveMs,
+  });
+
+  // `source` is not part of reportToRow, and public_token is generated by the
+  // database — so stamp one and read back the other in a single round trip.
+  const { data: stamped, error: stampErr } = await admin
+    .from("reports")
+    .update({ source: "whatsapp" })
+    .eq("user_id", intakeUserId)
+    .eq("id", report.id)
+    .select("public_token")
+    .single();
+  if (stampErr) console.error("[whatsapp] could not stamp source/read token", stampErr);
+
+  await clearPending(admin, phoneHash);
+  await dispatchComplaints(admin, intakeUserId, report.id);
+
+  const token = stamped?.public_token as string | undefined;
+  const where = routing.ward
+    ? `Ward ${routing.ward}${routing.zoneName ? `, ${routing.zoneName}` : ""}`
+    : (routing.cityName ?? `${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+  const deadline = new Date(report.slaDeadline).toLocaleString("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Asia/Kolkata",
+  });
+  const unverified = authorities.some((a) => !a.verified);
+
+  const lines = [
+    `✅ Filed as *${report.id}* — ${categoryLabel(report.category)}, severity ${report.severity}.`,
+    ``,
+    `📍 ${where}`,
+    `🏛 Filed to: ${report.filedTo.join(", ")}${unverified ? " (contact unverified)" : ""}`,
+    `⏱ Deadline: ${deadline}`,
+  ];
+  if (token) lines.push(``, `Track it here:`, `${baseUrl()}/track/${token}`);
+  lines.push(
+    ``,
+    `Only you can close this report — we'll ask for an after-photo when the agency claims it's fixed.`
+  );
+
+  return { reply: lines.join("\n"), report };
+}
+
+/**
+ * Sends the composed complaints for a report.
+ *
+ * /api/dispatch does this for the app, but it runs as the logged-in user and is
+ * RLS-scoped, so a webhook cannot call it. Same work, service-role client,
+ * inline — following correspondence-apply.ts.
+ */
+async function dispatchComplaints(
+  admin: SupabaseClient,
+  userId: string,
+  reportId: string
+): Promise<void> {
+  if (!gmailConfigured()) return;
+  const sink = process.env.DEMO_AUTHORITY_EMAIL;
+  if (!sink) {
+    console.warn("[whatsapp] DEMO_AUTHORITY_EMAIL not set — complaint not sent");
+    return;
+  }
+
+  const { data: rows, error } = await admin
+    .from("outbox_items")
+    .select("id, subject, body, intended_to")
+    .eq("user_id", userId)
+    .eq("report_id", reportId)
+    .eq("kind", "complaint")
+    .eq("delivered", false);
+  if (error || !rows?.length) return;
+
+  for (const row of rows) {
+    try {
+      const result = await sendMail({
+        to: sink,
+        subject: row.subject,
+        text: row.body,
+        html: complaintTextToHtml(row.subject, row.body),
+      });
+      await admin
+        .from("outbox_items")
+        .update({
+          delivered: true,
+          actually_to: sink,
+          provider_message_id: normalizeMessageId(result.messageId),
+          delivered_at: Date.now(),
+          delivery_error: null,
+        })
+        .eq("id", row.id);
+    } catch (err) {
+      console.error("[whatsapp] complaint send failed", err);
+      await admin
+        .from("outbox_items")
+        .update({ delivery_error: err instanceof Error ? err.message : "send failed" })
+        .eq("id", row.id);
+    }
+  }
+}

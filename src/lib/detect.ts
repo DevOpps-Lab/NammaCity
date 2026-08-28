@@ -1,6 +1,6 @@
 "use client";
 
-import type { Severity, IssueCategory } from "./types";
+import type { Severity } from "./types";
 
 /**
  * DEFECT ANALYSIS
@@ -178,12 +178,7 @@ function runAnalysis(img: HTMLImageElement): DetectionResult {
   };
 }
 
-/** Category still comes from the user — inferring it from pixels is not credible. */
-export const CATEGORY_OPTIONS: { value: IssueCategory; label: string; ta: string }[] = [
-  { value: "pothole", label: "Pothole", ta: "சாலைக் குழி" },
-  { value: "storm_water_drain", label: "Storm water drain", ta: "மழைநீர் வடிகால்" },
-  { value: "sewage_overflow", label: "Sewage overflow", ta: "கழிவுநீர் வழிதல்" },
-  { value: "garbage", label: "Garbage", ta: "குப்பை" },
-  { value: "streetlight", label: "Streetlight", ta: "தெருவிளக்கு" },
-  { value: "other", label: "Other", ta: "மற்றவை" },
-];
+// Moved to `./categories` so server code (the WhatsApp webhook) can name a
+// category without importing this `"use client"` module. Re-exported here
+// because the UI already imports it from detect.
+export { CATEGORY_OPTIONS } from "./categories";

@@ -20,7 +20,27 @@ import { fetchWithRetry } from "@/lib/supabase/fetch";
 // accepts a logged-in session for the in-app poll). The route returns 401 on
 // its own if neither is present, so opening the proxy here leaks nothing. Other
 // /api routes stay behind the optimistic guard so they can't be hit anonymously.
-const PUBLIC_PATHS = ["/login", "/signup", "/auth", "/api/inbound/poll"];
+//
+// /api/whatsapp is open for the same reason and with the same discipline:
+// Twilio sends no cookies, so a guarded route would hand it a 307 to /login and
+// the citizen would get an HTML page instead of a reply. The route verifies
+// Twilio's X-Twilio-Signature itself and fails closed, so opening the proxy
+// does not make it unauthenticated — it moves the check into the handler.
+//
+// /track/ is open because a citizen who filed over WhatsApp has no account at
+// all. It renders one report, addressed by an unguessable public_token rather
+// than by its (enumerable) id, read through the service-role client since every
+// RLS policy is owner-scoped and the anon key would read nothing. The trailing
+// slash matters: these are startsWith prefixes, so a bare "/track" would also
+// match a future "/tracking-something".
+const PUBLIC_PATHS = [
+  "/login",
+  "/signup",
+  "/auth",
+  "/api/inbound/poll",
+  "/api/whatsapp",
+  "/track/",
+];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });

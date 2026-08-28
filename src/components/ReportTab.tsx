@@ -7,6 +7,7 @@ import { type DetectionResult } from "@/lib/detect";
 import { llmAnalyze, type LLMAnalysisResult } from "@/lib/llm-analyze";
 import { locate, resolveAuthority, type LocationFix, type ResolveOutcome } from "@/lib/pipeline";
 import type { IssueCategory, CategorySource, Severity } from "@/lib/types";
+import { SEVERITY_OPTIONS } from "@/lib/severity";
 import { CATEGORY_OPTIONS } from "@/lib/detect";
 import { t, type Lang } from "@/lib/i18n";
 
@@ -19,12 +20,6 @@ export interface ConfirmedReport {
   fix: LocationFix;
   resolved: Extract<ResolveOutcome, { ok: true }>;
 }
-
-const SEVERITY_OPTIONS: { value: "minor" | "moderate" | "severe"; label: string; mapped: Severity }[] = [
-  { value: "minor",    label: "Minor",    mapped: "small"  },
-  { value: "moderate", label: "Moderate", mapped: "medium" },
-  { value: "severe",   label: "Severe",   mapped: "large"  },
-];
 
 type Stage = "idle" | "analysing" | "identified" | "filing";
 

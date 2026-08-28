@@ -98,6 +98,15 @@ export interface Report {
   afterPhotoUrl?: string;
   /** Perceptual hash of the redacted photo, used to confirm duplicates. */
   aHash?: string;
+  /**
+   * Which intake path this came through. Load-bearing for honesty rather than
+   * bookkeeping: an 'app' photo was redacted on the device before upload (faces
+   * pixelated, EXIF dropped), while a 'whatsapp' photo reached the server
+   * unredacted and could only have its metadata stripped. Anything that shows a
+   * privacy claim to a citizen must read this rather than assume the stronger
+   * guarantee. Absent on reports predating the column.
+   */
+  source?: "app" | "whatsapp";
   status: ReportStatus;
   routing: RoutingResult;
   /** ms epoch */
