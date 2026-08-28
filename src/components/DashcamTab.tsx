@@ -257,12 +257,18 @@ export default function DashcamTab({
         </>
       ) : (
         <div className="relative w-full overflow-hidden rounded-2xl bg-black">
-          {/* The video never renders — it exists only to decode frames for the
-              canvas to draw. The canvas (frame + boxes) is the only thing shown. */}
+          {/*
+            opacity-0, NOT display:none/hidden — several browsers pause frame
+            decoding on a display:none <video>, which left drawImage() painting
+            nothing onto the canvas below (confirmed: a black canvas in
+            production with the model never even receiving a frame). Staying
+            in-layout with zero opacity keeps decoding live while remaining
+            fully invisible; the canvas is still the only thing anyone sees.
+          */}
           <video
             ref={videoRef}
             src={videoUrl}
-            className="hidden"
+            className="absolute inset-0 h-full w-full opacity-0"
             muted
             playsInline
             autoPlay
@@ -270,7 +276,7 @@ export default function DashcamTab({
             onPlay={onPlay}
             onEnded={onEnded}
           />
-          <canvas ref={canvasRef} className="block w-full" />
+          <canvas ref={canvasRef} className="relative block w-full" />
         </div>
       )}
 
