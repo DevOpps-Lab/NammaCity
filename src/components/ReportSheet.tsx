@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import type { Report } from "@/lib/types";
@@ -10,6 +10,7 @@ import type { Comment } from "@/lib/db";
 import Icon from "./Icon";
 import Correspondence from "./Correspondence";
 import CommentThread from "./CommentThread";
+import BeforeAfterSlider from "./BeforeAfterSlider";
 
 export default function ReportSheet({
   report,
@@ -93,28 +94,20 @@ export default function ReportSheet({
       <div className="px-5 pb-6">
         {/* --- photo evidence ---------------------------------------------- */}
         {report.photoUrl?.startsWith("data:") && (
-          <div className="mb-4 flex gap-2">
-            <figure className="min-w-0 flex-1">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={report.photoUrl}
-                alt="Reported issue"
-                className="h-28 w-full rounded-lg object-cover"
-              />
-              <figcaption className="mt-1 text-[9px] uppercase tracking-wider text-[var(--text-dim)]">
-                Before · redacted on device
-              </figcaption>
-            </figure>
-            {report.afterPhotoUrl?.startsWith("data:") && (
-              <figure className="min-w-0 flex-1">
+          <div className="mb-4">
+            {report.afterPhotoUrl?.startsWith("data:") ? (
+              <BeforeAfterSlider beforeUrl={report.photoUrl} afterUrl={report.afterPhotoUrl} />
+            ) : (
+              <figure className="w-full">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={report.afterPhotoUrl}
-                  alt="After repair"
-                  className="h-28 w-full rounded-lg object-cover"
+                  src={report.photoUrl}
+                  alt="Reported issue"
+                  className="h-32 w-full rounded-lg object-cover shadow-[var(--shadow-1)]"
                 />
-                <figcaption className="mt-1 text-[9px] uppercase tracking-wider text-emerald-700">
-                  After · citizen verified
+                <figcaption className="mt-1.5 flex items-center justify-between text-[9px] uppercase tracking-wider text-[var(--text-dim)]">
+                  <span>Before</span>
+                  <span>Redacted on device</span>
                 </figcaption>
               </figure>
             )}

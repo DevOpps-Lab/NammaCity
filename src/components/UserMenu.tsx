@@ -14,6 +14,7 @@ export default function UserMenu({
   email,
   avatarUrl,
   onReset,
+  onSeed,
 }: {
   displayName: string;
   email: string;
