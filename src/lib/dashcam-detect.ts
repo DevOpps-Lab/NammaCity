@@ -50,7 +50,12 @@ export function loadDetector(onProgress?: (info: DetectorProgress) => void): Pro
     detectorPromise = (async () => {
       const { pipeline } = await import("@huggingface/transformers");
       return (await pipeline("zero-shot-object-detection", MODEL_ID, {
-        dtype: "q4f16",
+        // q8 (-> model_quantized.onnx) is transformers.js's own documented
+        // default dtype for WASM/CPU inference — deliberately NOT q4f16,
+        // which hits a known onnxruntime-web graph-fusion bug ("Can't create
+        // a session" / SimplifiedLayerNormFusion / InsertedPrecisionFreeCast)
+        // confirmed against this exact model in production.
+        dtype: "q8",
         progress_callback: (info: DetectorProgress) => onProgress?.(info),
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any)) as unknown as Detector;

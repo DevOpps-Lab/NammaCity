@@ -12,7 +12,7 @@
  * pothole visible for several seconds of footage doesn't flood the queue
  * with near-duplicates.
  *
- * The detector's quantized weights are a real ~127MB one-time download
+ * The detector's quantized weights are a real ~155MB one-time download
  * (browser-cached after that) — loaded as soon as this tab mounts, with a
  * progress bar, so the wait is visible rather than looking frozen.
  *
@@ -247,7 +247,7 @@ export default function DashcamTab({
           <Icon name="alert" size={28} className="mx-auto mb-3 text-[var(--danger)]" />
           <p className="text-[14px] font-semibold">Couldn&apos;t load the pothole detector</p>
           <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--text-dim)]">
-            The detection model (~127MB, downloaded once) didn&apos;t finish loading — usually a
+            The detection model (~155MB, downloaded once) didn&apos;t finish loading — usually a
             network hiccup. Every other tab works normally without it.
           </p>
           <button
@@ -271,7 +271,7 @@ export default function DashcamTab({
             <p className="mt-1 text-[12px] text-[var(--text-dim)]">
               {typeof detectorProgress === "number"
                 ? `Downloading detection model… ${Math.round(detectorProgress)}%`
-                : "One-time download (~127MB), cached after this."}
+                : "One-time download (~155MB), cached after this."}
             </p>
           </div>
         </div>
