@@ -230,19 +230,26 @@ export default function ReportTab({
         )}
         <button
           onClick={() => fileRef.current?.click()}
-          className="press rise-in flex w-full flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-[var(--border-strong)] py-20 transition-all hover:border-[var(--accent)]"
-          style={{ background: "var(--brand-grad-soft)" }}
+          className="press active:scale-[0.98] rise-in group relative flex w-full flex-col items-center justify-center gap-5 rounded-3xl overflow-hidden py-24 shadow-[0_8px_30px_rgba(var(--accent-rgb),0.12)] transition-all hover:shadow-[0_8px_40px_rgba(var(--accent-rgb),0.2)]"
         >
+          {/* Background effects */}
+          <div className="absolute inset-0 bg-gradient-to-br from-[var(--surface)] to-[var(--surface-2)]" />
+          <div className="absolute inset-0 opacity-[0.15] transition-opacity duration-500 group-hover:opacity-30" style={{ background: "var(--brand-grad)" }} />
+          <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-[var(--accent)]/10 to-transparent" />
+          
           <span
-            className="breathe grid h-20 w-20 place-items-center rounded-full text-white shadow-[var(--shadow-2)]"
+            className="breathe relative grid h-24 w-24 place-items-center rounded-full text-white shadow-[0_0_40px_rgba(var(--accent-rgb),0.4)]"
             style={{ background: "var(--brand-grad)" }}
           >
-            <Icon name="camera" size={32} />
+            <Icon name="camera" size={36} />
+            <div className="absolute inset-0 rounded-full border border-white/20" />
           </span>
-          <span className="text-[17px] font-bold">{t(lang, "takePhoto")}</span>
-          <span className="max-w-[28ch] text-center text-[12px] leading-relaxed text-[var(--text-dim)]">
-            {t(lang, "photoHint")}
-          </span>
+          <div className="relative text-center">
+            <span className="block text-xl font-bold tracking-tight">{t(lang, "takePhoto")}</span>
+            <span className="mt-2 block max-w-[28ch] text-[13px] leading-relaxed text-[var(--text-dim)]">
+              {t(lang, "photoHint")}
+            </span>
+          </div>
         </button>
         <p className="rise-in mt-4 text-center text-[11px] leading-relaxed text-[var(--text-faint)]">
           Everything below happens before you commit: the photo is redacted on
@@ -257,12 +264,23 @@ export default function ReportTab({
   if (stage === "analysing" || !image || !llmResult) {
     return (
       <Shell>
-        <div className="flex flex-col items-center justify-center gap-4 py-24">
-          <span className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--surface-3)] border-t-[var(--accent)]" />
-          <p className="text-[13px] font-medium">{step}</p>
-          <p className="text-[11px] text-[var(--text-faint)]">
-            Nothing has been sent anywhere yet.
-          </p>
+        <div className="flex flex-col items-center justify-center py-24">
+          <div className="relative mb-8 h-20 w-20">
+            {/* Pulsing rings */}
+            <div className="absolute inset-0 animate-ping rounded-full bg-[var(--accent)]/20" />
+            <div className="absolute inset-2 animate-ping rounded-full bg-[var(--accent)]/40" style={{ animationDelay: "0.2s" }} />
+            
+            <div className="absolute inset-0 grid place-items-center rounded-full bg-[var(--surface)] shadow-[0_0_30px_rgba(var(--accent-rgb),0.2)]">
+              <Icon name="eye" size={32} className="text-[var(--accent)] animate-pulse" />
+            </div>
+            
+            {/* Orbiting dot */}
+            <div className="absolute inset-0 animate-spin" style={{ animationDuration: "2s" }}>
+              <div className="h-3 w-3 rounded-full bg-[var(--accent)] shadow-[0_0_10px_var(--accent)] -translate-y-1.5 translate-x-8" />
+            </div>
+          </div>
+          <p className="fade-in text-center text-[15px] font-semibold tracking-tight">{step}</p>
+          <p className="fade-in mt-2 text-center text-[12px] text-[var(--text-dim)]">AI Vision & Location Engine Active</p>
         </div>
       </Shell>
     );

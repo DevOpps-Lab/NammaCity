@@ -47,7 +47,7 @@ export default function TopBar({
   return (
     // pt-safe keeps the bar clear of the Dynamic Island while the surface
     // colour still fills the notch area, so there's no seam above the header.
-    <header className="pt-safe px-safe relative z-[var(--z-overlay)] shrink-0 border-b border-[var(--border)] bg-[var(--surface)]/95 shadow-[var(--shadow-1)] backdrop-blur">
+    <header className="pt-safe px-safe relative z-[var(--z-overlay)] shrink-0 border-b border-white/20 bg-white/80 shadow-[0_4px_30px_rgba(0,0,0,0.05)] backdrop-blur-xl">
       <div className="flex h-14 items-center gap-1.5 px-2 sm:gap-2 sm:px-4">
         {/* Brand */}
         <div className="flex shrink-0 items-center gap-2">

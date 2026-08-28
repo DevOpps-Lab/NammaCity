@@ -35,12 +35,12 @@ export default function TabBar({
 }) {
   return (
     <>
-      {/* --- mobile: bottom bar --- */}
+      {/* --- mobile: bottom bar (Floating Pill) --- */}
       <nav
         aria-label="Main"
-        className="pb-safe px-safe z-[var(--z-panel)] shrink-0 border-t border-[var(--border)] bg-[var(--surface)] lg:hidden"
+        className="pb-safe px-safe absolute bottom-0 inset-x-0 z-[var(--z-panel)] shrink-0 lg:hidden p-4 pointer-events-none"
       >
-        <ul className="flex">
+        <ul className="flex overflow-hidden rounded-2xl border border-[var(--border)] bg-white/75 backdrop-blur-xl shadow-lg pointer-events-auto">
           {TABS.map((t) => {
             const on = t.key === active;
             return (
@@ -48,8 +48,8 @@ export default function TabBar({
                 <button
                   onClick={() => onChange(t.key)}
                   aria-current={on ? "page" : undefined}
-                  className={`press relative flex h-14 w-full flex-col items-center justify-center gap-0.5 transition-colors ${
-                    on ? "text-[var(--accent)]" : "text-[var(--text-faint)] hover:text-[var(--text-dim)]"
+                  className={`press active:scale-95 relative flex h-14 w-full flex-col items-center justify-center gap-0.5 transition-all duration-200 ${
+                    on ? "text-[var(--accent)]" : "text-slate-500 hover:text-slate-800"
                   }`}
                 >
                   <span className="relative">
@@ -58,7 +58,7 @@ export default function TabBar({
                   </span>
                   <span className="text-[10px] font-medium">{t.label}</span>
                   {on && (
-                    <span className="absolute inset-x-5 top-0 h-0.5 rounded-b bg-[var(--accent)]" />
+                    <span className="absolute inset-x-6 top-0 h-1 rounded-b-md bg-[var(--accent)] shadow-[0_2px_8px_rgba(var(--accent-rgb),0.5)]" />
                   )}
                 </button>
               </li>

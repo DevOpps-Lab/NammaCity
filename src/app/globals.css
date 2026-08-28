@@ -122,6 +122,14 @@ body {
   touch-action: none;
 }
 
+/* Micro-interactions */
+.press {
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.press:active {
+  transform: scale(0.96);
+}
+
 button {
   font: inherit;
 }
