@@ -29,6 +29,7 @@ import Icon from "./Icon";
 import {
   loadDetector,
   detectPotholes,
+  ROAD_ROI_TOP_FRACTION,
   type DashcamDetection,
   type DetectorProgress,
 } from "@/lib/dashcam-detect";
@@ -94,6 +95,18 @@ export default function DashcamTab({
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  /**
+   * Offscreen canvas holding ONLY the raw video frame.
+   *
+   * This exists because of a real bug: inference used to run on the visible
+   * canvas, which by then already had this frame's green boxes and labels
+   * painted on it. The model was being shown its own annotations and detecting
+   * them, a feedback loop that produced confident boxes on nothing. The same
+   * frame was also what got captured, so a filed report's photo had debug
+   * rectangles burned in. Inference and capture both read this clean copy;
+   * only the visible canvas ever gets drawn on.
+   */
+  const frameRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const busyRef = useRef(false);
   const lastInferAtRef = useRef(0);
@@ -117,6 +130,29 @@ export default function DashcamTab({
       classLabel: d.classLabel,
     };
     setFrames((prev) => [frame, ...prev]);
+  }, []);
+
+  /**
+   * Marks the top of the scanned road region. Without it, a citizen seeing an
+   * obvious pothole ignored high in the frame has no way to know the detector
+   * deliberately never looks there.
+   */
+  const drawRoiGuide = useCallback((ctx: CanvasRenderingContext2D) => {
+    const { width, height } = ctx.canvas;
+    const y = Math.floor(height * ROAD_ROI_TOP_FRACTION);
+    ctx.save();
+    ctx.strokeStyle = "rgba(255,255,255,0.45)";
+    ctx.lineWidth = Math.max(1, width / 640);
+    ctx.setLineDash([Math.max(4, width / 90), Math.max(4, width / 90)]);
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(width, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "rgba(255,255,255,0.75)";
+    ctx.font = `${Math.max(10, Math.round(width / 64))}px sans-serif`;
+    ctx.fillText("scanning below this line", Math.round(width / 100), y - Math.round(width / 150));
+    ctx.restore();
   }, []);
 
   const drawBoxes = useCallback((ctx: CanvasRenderingContext2D, boxes: DashcamDetection[]) => {
@@ -152,12 +188,15 @@ export default function DashcamTab({
       return;
     }
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const frame = frameRef.current;
+    const fctx = frame?.getContext("2d");
+    if (!ctx || !frame || !fctx) return;
 
-    // Draw the current video frame first — the canvas is the only thing
-    // actually visible, and it's also what gets handed to the model and what
-    // gets saved into the Draft Queue.
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    // Clean frame first (model + capture read this), then the visible copy
+    // with the overlay drawn on top. Never annotate what the model will see.
+    fctx.drawImage(video, 0, 0, frame.width, frame.height);
+    ctx.drawImage(frame, 0, 0);
+    drawRoiGuide(ctx);
     drawBoxes(ctx, lastBoxesRef.current);
 
     const now = performance.now();
@@ -165,7 +204,7 @@ export default function DashcamTab({
       lastInferAtRef.current = now;
       busyRef.current = true;
       const currentTimeMs = video.currentTime * 1000;
-      detectPotholes(canvas)
+      detectPotholes(frame)
         .then((detections) => {
           lastBoxesRef.current = detections;
           const best = detections.reduce<DashcamDetection | null>(
@@ -174,10 +213,10 @@ export default function DashcamTab({
           );
           if (best && now - lastCaptureAtRef.current >= CAPTURE_THROTTLE_MS) {
             lastCaptureAtRef.current = now;
-            // Snapshot AFTER the boxes are drawn, from a fresh canvas paint of
-            // this exact frame — captureFrame re-reads canvas.toDataURL(),
-            // which at this point still holds the frame + boxes just drawn.
-            captureFrame(canvas, best, currentTimeMs);
+            // Capture from the CLEAN frame — this image is handed to ReportTab
+            // and ends up as the filed report's photo, so it must not carry
+            // detection overlays.
+            captureFrame(frame, best, currentTimeMs);
           }
         })
         .catch(() => {
@@ -189,7 +228,7 @@ export default function DashcamTab({
     }
 
     rafRef.current = requestAnimationFrame(() => loopRef.current());
-  }, [captureFrame, drawBoxes]);
+  }, [captureFrame, drawBoxes, drawRoiGuide]);
 
   useEffect(() => {
     loopRef.current = loopImpl;
@@ -215,6 +254,13 @@ export default function DashcamTab({
     if (!video || !canvas) return;
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
+
+    // Clean offscreen twin, same dimensions. Built fresh rather than resized
+    // in place, so nothing read out of the ref is mutated.
+    const frame = document.createElement("canvas");
+    frame.width = video.videoWidth;
+    frame.height = video.videoHeight;
+    frameRef.current = frame;
   }, []);
 
   const onPlay = useCallback(() => {
