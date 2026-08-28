@@ -23,6 +23,7 @@ interface Props {
   onOpenOutbox: () => void;
   onToggleTrace: () => void;
   onReset: () => void;
+  onSeed: () => void;
   /** Number of agent-trace lines — drives the live dot on the trace button. */
   traceCount: number;
 }
@@ -40,6 +41,7 @@ export default function TopBar({
   onOpenOutbox,
   onToggleTrace,
   onReset,
+  onSeed,
   traceCount,
 }: Props) {
   return (
@@ -129,7 +131,7 @@ export default function TopBar({
 
           <span className="mx-0.5 hidden h-6 w-px bg-[var(--border)] sm:block" />
 
-          <UserMenu displayName={displayName} email={email} avatarUrl={avatarUrl} onReset={onReset} />
+          <UserMenu displayName={displayName} email={email} avatarUrl={avatarUrl} onReset={onReset} onSeed={onSeed} />
         </div>
       </div>
     </header>

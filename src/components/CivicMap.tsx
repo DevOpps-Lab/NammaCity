@@ -53,7 +53,9 @@ export default function CivicMap({ reports, selectedId, onSelect, visible = true
   const markersRef = useRef<Map<string, maplibregl.Marker>>(new Map());
   const droppedRef = useRef<Set<string>>(new Set());
   const onSelectRef = useRef(onSelect);
-  onSelectRef.current = onSelect;
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  }, [onSelect]);
 
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
@@ -62,6 +64,7 @@ export default function CivicMap({ reports, selectedId, onSelect, visible = true
   // --- init ---------------------------------------------------------------
   useEffect(() => {
     const box = boxRef.current;
+    const markers = markersRef.current;
     if (!box || mapRef.current) return;
 
     let styleIndex = 0;
@@ -127,7 +130,7 @@ export default function CivicMap({ reports, selectedId, onSelect, visible = true
       ro.disconnect();
       mapRef.current?.remove();
       mapRef.current = null;
-      markersRef.current.clear();
+      markers.clear();
     };
   }, []);
 

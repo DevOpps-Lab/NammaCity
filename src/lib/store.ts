@@ -12,6 +12,7 @@ import { composeReply } from "./outbox";
 import { classifyReply, applyReply, type InboundReply } from "./correspondence";
 import { composePost, composeUpdate } from "./escalation";
 import type { Lang } from "./i18n";
+import { toast } from "sonner";
 
 /**
  * Client store backed by Postgres.
@@ -215,6 +216,7 @@ export function useCivicStore() {
           const breachable: ReportStatus[] = ["filed", "acknowledged", "transferred"];
           if (breachable.includes(r.status) && t > r.slaDeadline) {
             changed = true;
+            toast.error(`SLA Breached for ${r.id}`, { description: "Authority missed deadline" });
             return {
               ...r,
               status: "past_sla" as ReportStatus,
@@ -230,6 +232,7 @@ export function useCivicStore() {
           }
           if (r.status === "past_sla" && t > r.slaDeadline + 6 * 3_600_000) {
             changed = true;
+            toast.warning(`Escalating ${r.id}`, { description: "Publishing to public ledger" });
             return {
               ...r,
               status: "escalated" as ReportStatus,
@@ -489,6 +492,10 @@ export function useCivicStore() {
       if (!target) return;
 
       const classified = classifyReply(reply, target);
+      
+      toast.info(`Email from Authority: ${reply.from}`, {
+        description: `Classified as ${classified.kind.replace(/_/g, " ")}`,
+      });
 
       pushTrace({
         agent: "AUTHORITY",
@@ -604,6 +611,21 @@ export function useCivicStore() {
     [refetch]
   );
 
+  const seedSampleData = useCallback(async () => {
+    if (!userRef.current) return;
+    setLoading(true);
+    try {
+      await db.seedIfEmpty(supabase, userRef.current);
+      await refetch();
+      toast.success("Sample data seeded!");
+    } catch (e) {
+      toast.error("Failed to seed data");
+      setError(e instanceof Error ? e.message : "Failed to seed data");
+    } finally {
+      setLoading(false);
+    }
+  }, [supabase, refetch]);
+
   /**
    * Sweep the system inbox for authority replies. The server matches each to a
    * report, runs the SAME correspondence handler the simulator uses, and updates
@@ -709,15 +731,6 @@ export function useCivicStore() {
     return { open, breached, verified, claimed, fixRate, claimedRate, total: reports.length };
   }, [myReports]);
 
-  const recentlyFixed = useMemo(
-    () =>
-      myReports
-        .filter((r) => r.status === "verified_fixed")
-        .sort((a, b) => b.createdAt - a.createdAt)
-        .slice(0, 10),
-    [myReports]
-  );
-
   return {
     user,
     displayName,
@@ -729,7 +742,6 @@ export function useCivicStore() {
     myReports,
     outbox,
     stats,
-    recentlyFixed,
     trace,
     demo,
     lang,
@@ -754,6 +766,7 @@ export function useCivicStore() {
     publicPosts,
     publishPost,
     resetAll,
+    seedSampleData,
     refetch,
     uploadPhoto: useCallback(
       (reportId: string, dataUrl: string) =>

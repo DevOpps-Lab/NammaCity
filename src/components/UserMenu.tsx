@@ -20,6 +20,7 @@ export default function UserMenu({
   /** Present for Google sign-ins; falls back to initials otherwise. */
   avatarUrl?: string | null;
   onReset: () => void;
+  onSeed: () => void;
 }) {
   const [avatarBroken, setAvatarBroken] = useState(false);
   const [open, setOpen] = useState(false);
@@ -107,15 +108,26 @@ export default function UserMenu({
                   >
                     Reset
                   </button>
-                  <button
-                    onClick={() => setConfirming(false)}
-                    className="flex-1 rounded-md border border-[var(--border)] px-2 py-1.5 text-[11px] font-medium text-[var(--text-dim)]"
-                  >
-                    Cancel
-                  </button>
-                </div>
+                <button
+                  onClick={() => setConfirming(false)}
+                  className="flex-1 rounded-md border border-[var(--border)] px-2 py-1.5 text-[11px] font-medium text-[var(--text-dim)]"
+                >
+                  Cancel
+                </button>
               </div>
-            ) : (
+            </div>
+          ) : (
+            <>
+              <button
+                role="menuitem"
+                onClick={() => {
+                  onSeed();
+                  setOpen(false);
+                }}
+                className="w-full rounded-md px-2.5 py-2 text-left text-[12px] text-[var(--text-dim)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--text)]"
+              >
+                Seed sample data
+              </button>
               <button
                 role="menuitem"
                 onClick={() => setConfirming(true)}
@@ -123,7 +135,8 @@ export default function UserMenu({
               >
                 Reset my ledger
               </button>
-            )}
+            </>
+          )}
 
             <form action={signOut}>
               <button

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import ServiceWorkerRegistrar from "@/components/ServiceWorkerRegistrar";
+import { Toaster } from "sonner";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -52,6 +53,7 @@ export default function RootLayout({
         {/* Fixed, non-scrolling app root — panes scroll internally so the map
             never gets pushed out of the viewport. */}
         <div id="app-root">{children}</div>
+        <Toaster position="bottom-right" richColors />
       </body>
     </html>
   );

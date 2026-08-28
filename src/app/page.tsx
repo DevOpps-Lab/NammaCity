@@ -14,6 +14,7 @@ import VerifyPanel from "@/components/VerifyPanel";
 import EscalationPanel from "@/components/EscalationPanel";
 import OutboxPanel from "@/components/OutboxPanel";
 import DuplicatePrompt from "@/components/DuplicatePrompt";
+import DemoOnboarding from "@/components/DemoOnboarding";
 import type { Report } from "@/lib/types";
 import { findDuplicates, type DuplicateCandidate } from "@/lib/dedup";
 import { composeRti, composePostItem } from "@/lib/outbox";
@@ -130,6 +131,7 @@ export default function Home() {
 
   return (
     <>
+      <DemoOnboarding />
       <TopBar
         stats={stats}
         lang={lang}
@@ -143,6 +145,7 @@ export default function Home() {
         onOpenOutbox={() => setOutboxOpen(true)}
         onToggleTrace={() => setTraceOpen((v) => !v)}
         onReset={() => void store.resetAll()}
+        onSeed={() => void store.seedSampleData()}
         traceCount={store.trace.length}
       />
 
