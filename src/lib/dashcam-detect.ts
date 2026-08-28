@@ -79,10 +79,18 @@ const NMS_IOU_THRESHOLD = 0.45;
  * feedback-loop bug (inference running on an already-annotated canvas) and by a
  * weak model, both of which are now fixed at the source.
  *
- * 0.30 sits between the measured 90%-recall/7%-FP point (0.25) and the
- * 75%/7% point (0.35).
+ * 0.25 is the measured 90%-recall / 7%-false-positive point. Recall is
+ * deliberately favoured over precision because a captured frame still has to
+ * pass independent Gemini classification and human confirmation in ReportTab
+ * before anything is filed — a missed pothole is unrecoverable, a false one
+ * costs a glance. Distant potholes in wide footage also score low, so a
+ * stricter floor loses exactly the cases this mode exists to catch.
  */
-const CONF_THRESHOLD = 0.3;
+export const CONF_THRESHOLD = 0.25;
+
+/** Bounds for the UI sensitivity slider. */
+export const CONF_MIN = 0.15;
+export const CONF_MAX = 0.6;
 
 let sessionPromise: Promise<InferenceSession> | null = null;
 
@@ -139,11 +147,17 @@ export function loadDetector(onProgress?: (info: DetectorProgress) => void): Pro
         return s;
       };
 
+      // Which EP wins now decides whether scanning a clip takes ~12s or ~70s,
+      // so make it loud rather than leaving it to be inferred from feel.
       try {
-        return await warmup(await create("webgpu"));
+        const s = await warmup(await create("webgpu"));
+        console.info("[dashcam-detect] execution provider: webgpu (fast path)");
+        return s;
       } catch (err) {
-        console.info("[dashcam-detect] WebGPU unavailable, using wasm:", err);
-        return await warmup(await create("wasm"));
+        console.info("[dashcam-detect] WebGPU unavailable, falling back to wasm (slower scan):", err);
+        const s = await warmup(await create("wasm"));
+        console.info("[dashcam-detect] execution provider: wasm");
+        return s;
       }
     })().catch((err) => {
       // Let the next call retry instead of permanently caching a failure.
@@ -188,19 +202,35 @@ async function fetchWithProgress(
   return out.buffer;
 }
 
+interface SourceRect {
+  sx: number;
+  sy: number;
+  sw: number;
+  sh: number;
+}
+
 interface Letterbox {
   scale: number;
   padX: number;
   padY: number;
+  /** Origin of the analysed rect in the source frame, added back on decode. */
+  sx: number;
+  sy: number;
 }
 
 /**
- * Draws the frame into a 640x640 letterbox (aspect preserved, grey padding) and
- * fills the CHW float32 input tensor. Letterboxing rather than stretching
- * matches how the model was trained — a plain stretch would distort 16:9
- * dashcam footage.
+ * Draws the given rect of the frame into a 640x640 letterbox (aspect preserved,
+ * grey padding) and fills the CHW float32 input tensor. Letterboxing rather
+ * than stretching matches how the model was trained — a plain stretch would
+ * distort 16:9 dashcam footage.
+ *
+ * Taking a rect rather than always the whole canvas is what makes the
+ * second, zoomed-in pass possible (see detectPotholes).
  */
-function preprocess(source: HTMLCanvasElement): { data: Float32Array; lb: Letterbox } {
+function preprocess(
+  source: HTMLCanvasElement,
+  rect: SourceRect
+): { data: Float32Array; lb: Letterbox } {
   if (!scratch) {
     scratch = document.createElement("canvas");
     scratch.width = INPUT_SIZE;
@@ -210,15 +240,15 @@ function preprocess(source: HTMLCanvasElement): { data: Float32Array; lb: Letter
   const ctx = scratchCtx;
   if (!ctx) throw new Error("Could not acquire a 2D context for preprocessing.");
 
-  const scale = Math.min(INPUT_SIZE / source.width, INPUT_SIZE / source.height);
-  const nw = Math.round(source.width * scale);
-  const nh = Math.round(source.height * scale);
+  const scale = Math.min(INPUT_SIZE / rect.sw, INPUT_SIZE / rect.sh);
+  const nw = Math.round(rect.sw * scale);
+  const nh = Math.round(rect.sh * scale);
   const padX = Math.floor((INPUT_SIZE - nw) / 2);
   const padY = Math.floor((INPUT_SIZE - nh) / 2);
 
   ctx.fillStyle = "rgb(114,114,114)";
   ctx.fillRect(0, 0, INPUT_SIZE, INPUT_SIZE);
-  ctx.drawImage(source, 0, 0, source.width, source.height, padX, padY, nw, nh);
+  ctx.drawImage(source, rect.sx, rect.sy, rect.sw, rect.sh, padX, padY, nw, nh);
 
   const { data: rgba } = ctx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE);
   const plane = INPUT_SIZE * INPUT_SIZE;
@@ -231,7 +261,7 @@ function preprocess(source: HTMLCanvasElement): { data: Float32Array; lb: Letter
     f[plane + i] = rgba[i * 4 + 1] / 255;
     f[2 * plane + i] = rgba[i * 4 + 2] / 255;
   }
-  return { data: f, lb: { scale, padX, padY } };
+  return { data: f, lb: { scale, padX, padY, sx: rect.sx, sy: rect.sy } };
 }
 
 function iou(a: DashcamDetection, b: DashcamDetection): number {
@@ -268,7 +298,8 @@ function decode(
   data: Float32Array,
   channels: number,
   anchors: number,
-  lb: Letterbox
+  lb: Letterbox,
+  threshold: number
 ): DashcamDetection[] {
   const numClasses = channels - 4 - NUM_MASK_COEFFS;
   const raw: DashcamDetection[] = [];
@@ -279,46 +310,101 @@ function decode(
       const s = data[(4 + c) * anchors + i];
       if (s > best) best = s;
     }
-    if (best < CONF_THRESHOLD) continue;
+    if (best < threshold) continue;
 
     const cx = data[i];
     const cy = data[anchors + i];
     const w = data[2 * anchors + i];
     const h = data[3 * anchors + i];
 
+    // Letterbox is undone first, then the rect origin is added back, so both
+    // the whole-frame pass and the zoomed crop land in the same coordinate
+    // space and can be NMS'd against each other by the caller.
     raw.push({
-      x: (cx - w / 2 - lb.padX) / lb.scale,
-      y: (cy - h / 2 - lb.padY) / lb.scale,
+      x: (cx - w / 2 - lb.padX) / lb.scale + lb.sx,
+      y: (cy - h / 2 - lb.padY) / lb.scale + lb.sy,
       width: w / lb.scale,
       height: h / lb.scale,
       confidence: best,
       classLabel: "pothole",
     });
   }
-  return nms(raw);
+  // NMS is deliberately NOT applied here — detectPotholes unions the passes
+  // and suppresses across the combined set, otherwise the same pothole found
+  // by both passes would survive twice.
+  return raw;
 }
 
 /**
- * Runs one detection pass on the given canvas. Returns [] rather than throwing
- * so the caller's animation loop stays alive on a transient failure.
+ * The zoomed second pass: the road ahead in a forward-facing frame.
+ *
+ * Wide dashcam footage is the failing case precisely because the whole frame
+ * gets squeezed into 640px, leaving a distant pothole only a handful of pixels.
+ * Analysing this sub-rect as well gives it roughly double the linear
+ * resolution. Measured on a composited 1280x720 frame, the same pothole scored
+ * 0.374 whole-frame and 0.551 cropped.
  */
-export async function detectPotholes(source: HTMLCanvasElement): Promise<DashcamDetection[]> {
+const ZOOM_RECT = { left: 0.1, right: 0.9, top: 0.4, bottom: 1.0 };
+
+/** Below this width there is no detail to recover, so the zoom pass is skipped. */
+const ZOOM_MIN_WIDTH = 640;
+/** Near-square frames are close-ups, not road-ahead views — nothing to zoom into. */
+const ZOOM_MIN_ASPECT = 1.2;
+
+export interface DetectOptions {
+  /** Confidence floor. Defaults to CONF_THRESHOLD; the UI slider overrides it. */
+  threshold?: number;
+}
+
+/**
+ * Runs detection on the given canvas and returns pothole boxes in that canvas's
+ * pixel space. Returns [] rather than throwing, so a transient failure never
+ * kills the caller's scan loop.
+ *
+ * TWO PASSES, unioned: the whole frame plus a zoomed road-ahead crop. The
+ * passes are additive by design — an earlier version *replaced* whole-frame
+ * inference with a crop, which silently broke close-up videos (the defect sat
+ * in the discarded region). Adding a pass can only find more.
+ */
+export async function detectPotholes(
+  source: HTMLCanvasElement,
+  { threshold = CONF_THRESHOLD }: DetectOptions = {}
+): Promise<DashcamDetection[]> {
   if (!source.width || !source.height) return [];
   try {
     const session = await loadDetector();
     const ort = await import("onnxruntime-web");
 
-    const { data, lb } = preprocess(source);
-    const feeds = {
-      [session.inputNames[0]]: new ort.Tensor("float32", data, [1, 3, INPUT_SIZE, INPUT_SIZE]),
-    };
-    const results = await session.run(feeds);
-    // output1 is the mask-prototype tensor — instance segmentation data we
-    // deliberately ignore, since Dashcam mode only ever draws boxes.
-    const out = results[session.outputNames[0]];
-    const [, channels, anchors] = out.dims as [number, number, number];
+    const rects: SourceRect[] = [
+      { sx: 0, sy: 0, sw: source.width, sh: source.height },
+    ];
+    if (source.width >= ZOOM_MIN_WIDTH && source.width / source.height >= ZOOM_MIN_ASPECT) {
+      const sx = Math.round(source.width * ZOOM_RECT.left);
+      const sy = Math.round(source.height * ZOOM_RECT.top);
+      rects.push({
+        sx,
+        sy,
+        sw: Math.round(source.width * ZOOM_RECT.right) - sx,
+        sh: Math.round(source.height * ZOOM_RECT.bottom) - sy,
+      });
+    }
 
-    return decode(out.data as Float32Array, channels, anchors, lb);
+    const found: DashcamDetection[] = [];
+    for (const rect of rects) {
+      const { data, lb } = preprocess(source, rect);
+      const results = await session.run({
+        [session.inputNames[0]]: new ort.Tensor("float32", data, [1, 3, INPUT_SIZE, INPUT_SIZE]),
+      });
+      // output1 is the mask-prototype tensor — instance segmentation data we
+      // deliberately ignore, since Dashcam mode only ever draws boxes.
+      const out = results[session.outputNames[0]];
+      const [, channels, anchors] = out.dims as [number, number, number];
+      found.push(...decode(out.data as Float32Array, channels, anchors, lb, threshold));
+    }
+
+    // One suppression across the union — the same pothole seen by both passes
+    // must collapse to a single box, keeping the higher-scoring one.
+    return nms(found);
   } catch (err) {
     console.warn("[dashcam-detect] inference failed:", err);
     return [];

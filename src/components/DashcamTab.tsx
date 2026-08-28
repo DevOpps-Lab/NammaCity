@@ -3,19 +3,24 @@
 /**
  * DASHCAM MODE
  *
- * Upload a video simulating a drive. It plays hidden behind a canvas that
- * mirrors every frame; a purpose-trained YOLOv8n pothole model (via
- * onnxruntime-web, on-device) runs against that canvas in a
- * requestAnimationFrame loop, and detections are drawn back onto it as boxes
- * + confidence scores. A pothole seen above 30% confidence is captured into a
- * local Draft Queue, throttled to at most one capture every 3 seconds so one
- * pothole visible for several seconds of footage doesn't flood the queue
- * with near-duplicates.
+ * Upload a drive video; it is scanned for potholes on-device by a YOLOv8n model
+ * (onnxruntime-web), and every hit lands in a Draft Queue for review.
  *
- * First use costs a ~40MB one-time download (our 13MB model from /public, plus
- * onnxruntime's ~27MB WASM/WebGPU runtime), browser-cached afterwards. It
- * starts as soon as this tab mounts and reports real progress, because a
- * 40MB silent wait is indistinguishable from a hang.
+ * WHY THIS SCANS INSTEAD OF PLAYING. The obvious implementation — play the
+ * video and run inference from a requestAnimationFrame loop — is what this
+ * replaced, and it failed on exactly the footage the feature is for. Inference
+ * takes ~600ms on the wasm path, so at 1x playback of 30fps footage roughly
+ * one frame in eighteen was ever analysed (~6% of the video). On slow close-up
+ * clips that was invisible, because the pothole filled the frame for seconds.
+ * On real dashcam footage a pothole is in view for about a second, got one or
+ * two chances, and was usually missed. The boxes were also ~600ms stale, so
+ * they were painted where the pothole had been.
+ *
+ * Since this is an uploaded file and not a live camera, nothing requires 1x
+ * playback. So the video is kept PAUSED and stepped deterministically: seek,
+ * analyse, draw, advance. Every sampled frame is really analysed, and the boxes
+ * always belong to the frame on screen. It looks like slightly slow live
+ * detection and is exhaustive underneath.
  *
  * Filing is NOT reimplemented here. Clicking a queue frame hands it to the
  * exact same ReportTab a manual citizen report goes through (category
@@ -29,6 +34,9 @@ import Icon from "./Icon";
 import {
   loadDetector,
   detectPotholes,
+  CONF_THRESHOLD,
+  CONF_MIN,
+  CONF_MAX,
   type DashcamDetection,
   type DetectorProgress,
 } from "@/lib/dashcam-detect";
@@ -41,16 +49,47 @@ interface DraftFrame {
   classLabel: string;
 }
 
-/** How often detectPotholes() runs — independent of the rAF draw rate. */
-const INFER_INTERVAL_MS = 250;
 /**
- * Capture gate. Kept equal to the detector's own threshold so anything drawn
- * on screen is also eligible for the queue — a stricter gate here silently
- * showed boxes that could never be captured, which reads as a broken feature.
+ * Roughly how many frames to sample across the whole clip. Sampling adapts to
+ * clip length so scan time stays bounded instead of scaling without limit: a
+ * 15s clip lands on ~0.25s steps, a 2min clip on 1s steps.
  */
-const MIN_CONFIDENCE = 0.3;
-/** Minimum gap between two captures, regardless of how many boxes are on screen. */
-const CAPTURE_THROTTLE_MS = 3000;
+const TARGET_SAMPLES = 60;
+const MIN_STEP_S = 0.15;
+const MAX_STEP_S = 1.0;
+
+/**
+ * Minimum gap between captures, in VIDEO seconds — not wall clock. The old code
+ * throttled on performance.now(), which stops corresponding to anything once
+ * playback is decoupled from real time.
+ */
+const CAPTURE_MIN_GAP_S = 1.0;
+
+/** A seek to an unchanged timestamp may never fire `seeked`; never hang on it. */
+const SEEK_TIMEOUT_MS = 400;
+
+/** Resolves once the frame at `t` is actually decoded and drawable. */
+function seekTo(video: HTMLVideoElement, t: number): Promise<void> {
+  return new Promise((resolve) => {
+    // Idempotent, so the timeout firing after a real `seeked` is harmless.
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      video.removeEventListener("seeked", finish);
+      resolve();
+    };
+    video.addEventListener("seeked", finish);
+    setTimeout(finish, SEEK_TIMEOUT_MS);
+    video.currentTime = t;
+  });
+}
+
+interface ScanProgress {
+  done: number;
+  total: number;
+  etaMs: number | null;
+}
 
 export default function DashcamTab({
   onOpenReport,
@@ -64,9 +103,37 @@ export default function DashcamTab({
   // measure) and onnxruntime's own ~27MB WASM/WebGPU runtime plus warmup
   // (which it fetches internally, so we can only say it's happening).
   const [detectorPhase, setDetectorPhase] = useState<"download" | "initializing">("download");
-  const [driving, setDriving] = useState(false);
+
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [frames, setFrames] = useState<DraftFrame[]>([]);
+  const [scanning, setScanning] = useState(false);
+  const [scanDone, setScanDone] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<ScanProgress | null>(null);
+  const [sensitivity, setSensitivity] = useState(CONF_THRESHOLD);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  /**
+   * Offscreen canvas holding ONLY the raw video frame.
+   *
+   * This exists because of a real bug: inference used to run on the visible
+   * canvas, which by then already had this frame's green boxes and labels
+   * painted on it. The model was being shown its own annotations and detecting
+   * them, a feedback loop that produced confident boxes on nothing. The same
+   * frame was also what got captured, so a filed report's photo had debug
+   * rectangles burned in. Inference and capture both read this clean copy;
+   * only the visible canvas ever gets drawn on.
+   */
+  const frameRef = useRef<HTMLCanvasElement | null>(null);
+  /** Bumped to abandon an in-flight scan (Stop, new video, unmount). */
+  const runIdRef = useRef(0);
+  /** Read inside the loop so the slider takes effect on the next frame. */
+  const sensitivityRef = useRef(sensitivity);
+
+  useEffect(() => {
+    sensitivityRef.current = sensitivity;
+  }, [sensitivity]);
 
   // Doesn't reset state itself — called once on mount (defaults are already
   // "loading"/null) and from the Retry button (which resets state itself,
@@ -96,43 +163,13 @@ export default function DashcamTab({
     beginDetectorLoad();
   }, [beginDetectorLoad]);
 
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  /**
-   * Offscreen canvas holding ONLY the raw video frame.
-   *
-   * This exists because of a real bug: inference used to run on the visible
-   * canvas, which by then already had this frame's green boxes and labels
-   * painted on it. The model was being shown its own annotations and detecting
-   * them, a feedback loop that produced confident boxes on nothing. The same
-   * frame was also what got captured, so a filed report's photo had debug
-   * rectangles burned in. Inference and capture both read this clean copy;
-   * only the visible canvas ever gets drawn on.
-   */
-  const frameRef = useRef<HTMLCanvasElement | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const busyRef = useRef(false);
-  const lastInferAtRef = useRef(0);
-  const lastCaptureAtRef = useRef(0);
-  const lastBoxesRef = useRef<DashcamDetection[]>([]);
-
   useEffect(() => {
+    // Capture the ref object (not its value) so the cleanup bumps the live
+    // counter and abandons whatever scan is in flight at unmount.
+    const runId = runIdRef;
     return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      if (videoUrl) URL.revokeObjectURL(videoUrl);
+      runId.current++;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const captureFrame = useCallback((canvas: HTMLCanvasElement, d: DashcamDetection, atMs: number) => {
-    const frame: DraftFrame = {
-      id: crypto.randomUUID(),
-      capturedAtMs: atMs,
-      snapshotDataUrl: canvas.toDataURL("image/jpeg", 0.85),
-      confidence: d.confidence,
-      classLabel: d.classLabel,
-    };
-    setFrames((prev) => [frame, ...prev]);
   }, []);
 
   const drawBoxes = useCallback((ctx: CanvasRenderingContext2D, boxes: DashcamDetection[]) => {
@@ -155,78 +192,106 @@ export default function DashcamTab({
     }
   }, []);
 
-  // requestAnimationFrame loops that call themselves by name need an
-  // indirection ref — `loop` can't appear inside its own useCallback body
-  // before it's declared. The assignment happens in an effect, not during
-  // render, since refs may only be written outside of render.
-  const loopRef = useRef<() => void>(() => {});
-  const loopImpl = useCallback(() => {
+  const captureFrame = useCallback(
+    (clean: HTMLCanvasElement, d: DashcamDetection, atMs: number) => {
+      setFrames((prev) => [
+        {
+          id: crypto.randomUUID(),
+          capturedAtMs: atMs,
+          // From the CLEAN canvas — this image becomes the filed report's
+          // photo, so it must not carry detection overlays.
+          snapshotDataUrl: clean.toDataURL("image/jpeg", 0.85),
+          confidence: d.confidence,
+          classLabel: d.classLabel,
+        },
+        ...prev,
+      ]);
+    },
+    []
+  );
+
+  /** Steps the whole clip: seek -> analyse -> draw -> advance. */
+  const runScan = useCallback(async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas || video.paused || video.ended) {
-      rafRef.current = null;
+    const clean = frameRef.current;
+    const ctx = canvas?.getContext("2d");
+    const cctx = clean?.getContext("2d");
+    if (!video || !canvas || !clean || !ctx || !cctx) return;
+
+    const duration = video.duration;
+    if (!Number.isFinite(duration) || duration <= 0) {
+      setScanError("Couldn't read this video's length, so it can't be scanned. Try another file.");
       return;
     }
-    const ctx = canvas.getContext("2d");
-    const frame = frameRef.current;
-    const fctx = frame?.getContext("2d");
-    if (!ctx || !frame || !fctx) return;
 
-    // Clean frame first (model + capture read this), then the visible copy
-    // with the overlay drawn on top. Never annotate what the model will see.
-    fctx.drawImage(video, 0, 0, frame.width, frame.height);
-    ctx.drawImage(frame, 0, 0);
-    drawBoxes(ctx, lastBoxesRef.current);
+    const runId = ++runIdRef.current;
+    const aborted = () => runIdRef.current !== runId;
 
-    const now = performance.now();
-    if (now - lastInferAtRef.current > INFER_INTERVAL_MS && !busyRef.current) {
-      lastInferAtRef.current = now;
-      busyRef.current = true;
-      const currentTimeMs = video.currentTime * 1000;
-      detectPotholes(frame)
-        .then((detections) => {
-          lastBoxesRef.current = detections;
-          const best = detections.reduce<DashcamDetection | null>(
-            (top, d) => (d.confidence >= MIN_CONFIDENCE && (!top || d.confidence > top.confidence) ? d : top),
-            null
-          );
-          if (best && now - lastCaptureAtRef.current >= CAPTURE_THROTTLE_MS) {
-            lastCaptureAtRef.current = now;
-            // Capture from the CLEAN frame — this image is handed to ReportTab
-            // and ends up as the filed report's photo, so it must not carry
-            // detection overlays.
-            captureFrame(frame, best, currentTimeMs);
-          }
-        })
-        .catch(() => {
-          /* detectPotholes already logs; keep the loop alive */
-        })
-        .finally(() => {
-          busyRef.current = false;
-        });
+    video.pause();
+    setScanError(null);
+    setScanDone(false);
+    setScanning(true);
+
+    const step = Math.min(MAX_STEP_S, Math.max(MIN_STEP_S, duration / TARGET_SAMPLES));
+    const total = Math.max(1, Math.ceil(duration / step));
+    setProgress({ done: 0, total, etaMs: null });
+
+    const startedAt = performance.now();
+    let lastCaptureAt = -Infinity;
+    let done = 0;
+
+    for (let t = 0; t < duration; t += step) {
+      if (aborted()) return;
+      await seekTo(video, Math.min(t, Math.max(0, duration - 0.01)));
+      if (aborted()) return;
+
+      cctx.drawImage(video, 0, 0, clean.width, clean.height);
+
+      const detections = await detectPotholes(clean, { threshold: sensitivityRef.current });
+      if (aborted()) return;
+
+      // Draw the frame we just analysed, with its own boxes — never a previous
+      // frame's, which is what made the old real-time overlay look misaligned.
+      ctx.drawImage(clean, 0, 0);
+      drawBoxes(ctx, detections);
+
+      const best = detections.reduce<DashcamDetection | null>(
+        (top, d) => (!top || d.confidence > top.confidence ? d : top),
+        null
+      );
+      if (best && t - lastCaptureAt >= CAPTURE_MIN_GAP_S) {
+        lastCaptureAt = t;
+        captureFrame(clean, best, t * 1000);
+      }
+
+      done++;
+      const perFrame = (performance.now() - startedAt) / done;
+      setProgress({ done, total, etaMs: Math.max(0, (total - done) * perFrame) });
     }
 
-    rafRef.current = requestAnimationFrame(() => loopRef.current());
+    if (aborted()) return;
+    setScanning(false);
+    setScanDone(true);
   }, [captureFrame, drawBoxes]);
-
-  useEffect(() => {
-    loopRef.current = loopImpl;
-  }, [loopImpl]);
 
   const onPickVideo = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
+    runIdRef.current++; // abandon any scan still running
     const url = URL.createObjectURL(f);
     setVideoUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return url;
     });
     setFrames([]);
-    lastCaptureAtRef.current = 0;
-    lastBoxesRef.current = [];
-    setDriving(true);
+    setProgress(null);
+    setScanDone(false);
+    setScanError(null);
+    setScanning(false);
   }, []);
 
+  /** Metadata is the earliest point the real dimensions and duration exist. */
   const onLoadedMetadata = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -236,32 +301,30 @@ export default function DashcamTab({
 
     // Clean offscreen twin, same dimensions. Built fresh rather than resized
     // in place, so nothing read out of the ref is mutated.
-    const frame = document.createElement("canvas");
-    frame.width = video.videoWidth;
-    frame.height = video.videoHeight;
-    frameRef.current = frame;
+    const clean = document.createElement("canvas");
+    clean.width = video.videoWidth;
+    clean.height = video.videoHeight;
+    frameRef.current = clean;
+
+    void runScan();
+  }, [runScan]);
+
+  const stopScan = useCallback(() => {
+    runIdRef.current++;
+    setScanning(false);
+    setScanDone(true);
   }, []);
 
-  const onPlay = useCallback(() => {
-    if (rafRef.current == null) rafRef.current = requestAnimationFrame(() => loopRef.current());
-  }, []);
-
-  const onEnded = useCallback(() => {
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-    setDriving(false);
-  }, []);
-
-  const stopDrive = useCallback(() => {
-    videoRef.current?.pause();
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-    setDriving(false);
-  }, []);
+  const newDrive = useCallback(() => {
+    runIdRef.current++;
+    if (videoUrl) URL.revokeObjectURL(videoUrl);
+    setVideoUrl(null);
+    setFrames([]);
+    setProgress(null);
+    setScanning(false);
+    setScanDone(false);
+    setScanError(null);
+  }, [videoUrl]);
 
   const openFrame = useCallback(
     async (frame: DraftFrame) => {
@@ -272,6 +335,7 @@ export default function DashcamTab({
     [onOpenReport]
   );
 
+  // ------------------------------------------------------------- detector
   if (detectorState === "error") {
     return (
       <Shell>
@@ -324,86 +388,159 @@ export default function DashcamTab({
     );
   }
 
+  // ------------------------------------------------------------------ idle
+  if (!videoUrl) {
+    return (
+      <Shell>
+        <input
+          type="file"
+          accept="video/*"
+          onChange={onPickVideo}
+          className="hidden"
+          id="dashcam-video-input"
+        />
+        <label
+          htmlFor="dashcam-video-input"
+          className="press active:scale-[0.98] rise-in group relative flex w-full cursor-pointer flex-col items-center justify-center gap-5 overflow-hidden rounded-3xl py-24 shadow-[0_8px_30px_rgba(var(--accent-rgb),0.12)] transition-all hover:shadow-[0_8px_40px_rgba(var(--accent-rgb),0.2)]"
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-[var(--surface)] to-[var(--surface-2)]" />
+          <div
+            className="absolute inset-0 opacity-[0.15] transition-opacity duration-500 group-hover:opacity-30"
+            style={{ background: "var(--brand-grad)" }}
+          />
+          <span
+            className="breathe relative grid h-24 w-24 place-items-center rounded-full text-white shadow-[0_0_40px_rgba(var(--accent-rgb),0.4)]"
+            style={{ background: "var(--brand-grad)" }}
+          >
+            <Icon name="video" size={36} />
+          </span>
+          <div className="relative text-center">
+            <span className="block text-xl font-bold tracking-tight">Upload a drive</span>
+            <span className="mt-2 block max-w-[30ch] text-[13px] leading-relaxed text-[var(--text-dim)]">
+              Every frame is scanned for potholes, on your device
+            </span>
+          </div>
+        </label>
+        <p className="rise-in mt-4 text-center text-[11px] leading-relaxed text-[var(--text-faint)]">
+          Nothing is filed automatically. Tap any captured frame to review and report it through
+          the normal flow.
+        </p>
+      </Shell>
+    );
+  }
+
+  // ---------------------------------------------------------------- scanning
+  const pct = progress ? Math.round((progress.done / progress.total) * 100) : 0;
+  const etaSec = progress?.etaMs != null ? Math.ceil(progress.etaMs / 1000) : null;
+
   return (
     <Shell>
-      {!videoUrl ? (
-        <>
-          <input
-            type="file"
-            accept="video/*"
-            onChange={onPickVideo}
-            className="hidden"
-            id="dashcam-video-input"
-          />
-          <label
-            htmlFor="dashcam-video-input"
-            className="press active:scale-[0.98] rise-in group relative flex w-full cursor-pointer flex-col items-center justify-center gap-5 overflow-hidden rounded-3xl py-24 shadow-[0_8px_30px_rgba(var(--accent-rgb),0.12)] transition-all hover:shadow-[0_8px_40px_rgba(var(--accent-rgb),0.2)]"
-          >
-            <div className="absolute inset-0 bg-gradient-to-br from-[var(--surface)] to-[var(--surface-2)]" />
-            <div
-              className="absolute inset-0 opacity-[0.15] transition-opacity duration-500 group-hover:opacity-30"
-              style={{ background: "var(--brand-grad)" }}
-            />
-            <span
-              className="breathe relative grid h-24 w-24 place-items-center rounded-full text-white shadow-[0_0_40px_rgba(var(--accent-rgb),0.4)]"
-              style={{ background: "var(--brand-grad)" }}
-            >
-              <Icon name="video" size={36} />
-            </span>
-            <div className="relative text-center">
-              <span className="block text-xl font-bold tracking-tight">Upload a drive</span>
-              <span className="mt-2 block max-w-[30ch] text-[13px] leading-relaxed text-[var(--text-dim)]">
-                We&apos;ll scan it for potholes in real time as it plays
-              </span>
-            </div>
-          </label>
-          <p className="rise-in mt-4 text-center text-[11px] leading-relaxed text-[var(--text-faint)]">
-            Nothing is filed automatically. Tap any captured frame below to review and report it
-            through the normal flow.
-          </p>
-        </>
-      ) : (
-        <div className="relative w-full overflow-hidden rounded-2xl bg-black">
-          {/*
-            opacity-0, NOT display:none/hidden — several browsers pause frame
-            decoding on a display:none <video>, which left drawImage() painting
-            nothing onto the canvas below (confirmed: a black canvas in
-            production with the model never even receiving a frame). Staying
-            in-layout with zero opacity keeps decoding live while remaining
-            fully invisible; the canvas is still the only thing anyone sees.
-          */}
-          <video
-            ref={videoRef}
-            src={videoUrl}
-            className="absolute inset-0 h-full w-full opacity-0"
-            muted
-            playsInline
-            autoPlay
-            onLoadedMetadata={onLoadedMetadata}
-            onPlay={onPlay}
-            onEnded={onEnded}
-          />
-          <canvas ref={canvasRef} className="relative block w-full" />
-        </div>
+      <div className="relative w-full overflow-hidden rounded-2xl bg-black">
+        {/*
+          opacity-0, NOT display:none/hidden — several browsers pause frame
+          decoding on a display:none <video>, which left drawImage() painting
+          nothing onto the canvas below (confirmed: a black canvas in
+          production with the model never even receiving a frame). Staying
+          in-layout with zero opacity keeps decoding live while remaining
+          fully invisible; the canvas is still the only thing anyone sees.
+
+          No autoPlay: the scan drives currentTime itself and the video stays
+          paused throughout.
+        */}
+        <video
+          ref={videoRef}
+          src={videoUrl}
+          className="absolute inset-0 h-full w-full opacity-0"
+          muted
+          playsInline
+          preload="auto"
+          onLoadedMetadata={onLoadedMetadata}
+        />
+        <canvas ref={canvasRef} className="relative block w-full" />
+      </div>
+
+      {scanError && (
+        <p className="mt-3 rounded-lg border border-[var(--danger)]/35 bg-[var(--danger)]/10 px-3 py-2 text-[11px] leading-relaxed text-[var(--danger)]">
+          {scanError}
+        </p>
       )}
 
-      {videoUrl && (
-        <div className="mt-3 flex items-center justify-between">
-          <p className="text-[11px] text-[var(--text-faint)]">
-            Scanning for potholes… {frames.length} frame{frames.length === 1 ? "" : "s"} captured
-          </p>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <p className="min-w-0 truncate text-[11px] text-[var(--text-faint)]">
+          {scanning ? (
+            <>
+              Scanning {pct}% · frame {progress?.done ?? 0}/{progress?.total ?? 0}
+              {etaSec != null && etaSec > 0 ? ` · ~${etaSec}s left` : ""}
+            </>
+          ) : scanDone ? (
+            <>
+              Scan complete · {frames.length} pothole{frames.length === 1 ? "" : "s"} captured
+            </>
+          ) : (
+            "Preparing scan…"
+          )}
+        </p>
+        {scanning ? (
           <button
-            onClick={stopDrive}
-            disabled={!driving}
-            className="shrink-0 text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)] disabled:opacity-40"
+            onClick={stopScan}
+            className="shrink-0 text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)]"
           >
             Stop
           </button>
+        ) : (
+          <div className="flex shrink-0 gap-3">
+            <button
+              onClick={() => void runScan()}
+              className="text-[11px] font-medium text-[var(--accent)] hover:underline"
+            >
+              Rescan
+            </button>
+            <button
+              onClick={newDrive}
+              className="text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)]"
+            >
+              New drive
+            </button>
+          </div>
+        )}
+      </div>
+
+      {scanning && (
+        <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-[var(--surface-3)]">
+          <div
+            className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-150"
+            style={{ width: `${pct}%` }}
+          />
         </div>
       )}
 
+      {/* Sensitivity is exposed because the right value is footage-dependent:
+          a distant pothole in wide footage scores far lower than a close-up
+          one, and a captured frame still faces Gemini classification and human
+          confirmation downstream, so leaning toward recall is cheap. */}
+      <label className="mt-4 block">
+        <span className="flex items-baseline justify-between text-[11px] text-[var(--text-dim)]">
+          <span className="font-medium">Sensitivity</span>
+          <span className="text-[var(--text-faint)]">
+            {Math.round(sensitivity * 100)}% · {sensitivity <= 0.22 ? "catches more, more false alarms" : sensitivity >= 0.45 ? "stricter, may miss some" : "balanced"}
+          </span>
+        </span>
+        <input
+          type="range"
+          min={CONF_MIN}
+          max={CONF_MAX}
+          step={0.05}
+          value={sensitivity}
+          onChange={(e) => setSensitivity(Number(e.target.value))}
+          className="mt-1.5 w-full accent-[var(--accent)]"
+        />
+        <span className="mt-1 block text-[10px] leading-relaxed text-[var(--text-faint)]">
+          Takes effect on the next frame — adjust mid-scan, or Rescan to redo the clip.
+        </span>
+      </label>
+
       {frames.length > 0 && (
-        <div className="scroll-thin fade-in mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
+        <div className="scroll-thin fade-in mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
           {frames.map((f) => (
             <button
               key={f.id}
@@ -417,7 +554,7 @@ export default function DashcamTab({
                 className="h-full w-full object-cover"
               />
               <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 text-[9px] text-white">
-                {Math.round(f.confidence * 100)}%
+                {Math.round(f.confidence * 100)}% · {(f.capturedAtMs / 1000).toFixed(1)}s
               </span>
               <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-[10px] font-semibold text-white opacity-0 transition-all group-hover:bg-black/40 group-hover:opacity-100">
                 Report this
@@ -427,17 +564,11 @@ export default function DashcamTab({
         </div>
       )}
 
-      {videoUrl && !driving && (
-        <button
-          onClick={() => {
-            if (videoUrl) URL.revokeObjectURL(videoUrl);
-            setVideoUrl(null);
-            setFrames([]);
-          }}
-          className="mt-4 w-full rounded-xl border border-[var(--border)] py-2.5 text-[12px] font-medium text-[var(--text-dim)] hover:border-[var(--border-strong)] hover:text-[var(--text)]"
-        >
-          Start a new drive
-        </button>
+      {scanDone && frames.length === 0 && (
+        <p className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-center text-[12px] leading-relaxed text-[var(--text-dim)]">
+          No potholes found in this clip. If you can see one, raise the sensitivity above and
+          Rescan — distant potholes in wide footage score low.
+        </p>
       )}
     </Shell>
   );
