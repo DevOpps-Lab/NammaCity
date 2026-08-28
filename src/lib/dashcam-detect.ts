@@ -19,22 +19,26 @@
  * Driving onnxruntime directly against a plain, standard YOLOv8 graph avoids
  * that whole class of exotic-quantization/graph-fusion failure.
  *
- * MEASURED, not assumed (verified offline against the taroii/pothole-detection
- * test split — a DIFFERENT dataset than the model was trained on, so this is a
- * genuine cross-dataset number, unlike the model card's claimed mAP50 0.995):
- *   conf 0.40 -> 40% per-frame recall,  7% false positives
- *   conf 0.25 -> 50% per-frame recall, 33% false positives
- *   conf 0.15 -> 80% per-frame recall, 53% false positives
- * 0.40 is the chosen operating point. Per-frame recall understates real
- * performance: a pothole stays in view for seconds, so it gets several
- * independent chances to be caught. The residual false positives are caught by
- * the human review step before anything is filed.
+ * MODEL CHOICE IS MEASURED, NOT ASSUMED. Four candidate pothole models were
+ * benchmarked offline on the same held-out set (taroii/pothole-detection test
+ * split, 20 known-pothole + 15 known-clean images — a different dataset than
+ * any of them trained on, so these are cross-dataset numbers). At conf 0.25:
+ *   subhodeepmoitra    13MB  recall 90%  false-pos  7%   <- shipped
+ *   peterhdd           45MB  recall 75%  false-pos  7%
+ *   seanjudelyons      13MB  recall 50%  false-pos 33%
+ *   vinothvikas (RDD)  45MB  recall  0%  false-pos  7%
+ * The shipped model beats the others at every threshold tested, for the same
+ * size as the worst of them. Do not swap it without re-running that benchmark.
  *
- * SPEED: measured 877ms/frame on single-threaded wasm, which is only ~1fps —
- * so we try WebGPU first, where this class of model typically runs an order of
- * magnitude faster. WebGPU cannot be verified outside a browser, so it is
- * strictly an optimistic upgrade: session creation AND a warmup inference must
- * both succeed, otherwise we fall back to the wasm path that IS verified
+ * Per-frame recall still understates live performance: a pothole stays in view
+ * for seconds, so it gets several independent chances. Residual false positives
+ * are caught by the human review step before anything is filed.
+ *
+ * SPEED: measured 597ms/frame on single-threaded wasm — under 2fps, so we try
+ * WebGPU first, where this class of model typically runs an order of magnitude
+ * faster. WebGPU cannot be verified outside a browser, so it is strictly an
+ * optimistic upgrade: session creation AND a warmup inference must both
+ * succeed, otherwise we fall back to the wasm path that IS verified
  * (scripts/verify-dashcam-model.mjs). Worst case we land on known-good.
  */
 
@@ -64,27 +68,21 @@ const MODEL_URL = "/models/pothole-yolov8n.onnx";
 const NMS_IOU_THRESHOLD = 0.45;
 
 /**
- * Fraction of the frame height skipped from the top before inference — the
- * road-ahead region of interest for a forward-facing camera.
+ * Whole frame, deliberately.
  *
- * This is not a cosmetic crop. Feeding the whole frame meant the sky, treeline
- * and roadside verge all reached the model, and on real dashcam footage that
- * produced confident detections on trees while the actual road scored lower.
- * Potholes are, by definition, on the road surface, so anything above the
- * horizon is noise the model should never see.
+ * An earlier version cropped to the lower 45% as a "road region", on the
+ * assumption of a forward-facing dashcam. That assumption is wrong for the
+ * footage people actually upload: a close-up video of a damaged surface has the
+ * defect anywhere in frame, and the crop threw half of it away — the tab
+ * detected nothing at all on exactly the clearest test video. The tree/sky
+ * false positives that motivated the crop turned out to be caused by the
+ * feedback-loop bug (inference running on an already-annotated canvas) and by a
+ * weak model, both of which are now fixed at the source.
  *
- * Measured on a composited 1280x720 frame: cropping raised the true pothole's
- * score from 0.374 to 0.551, and makes an above-horizon detection structurally
- * impossible rather than merely unlikely.
+ * 0.30 sits between the measured 90%-recall/7%-FP point (0.25) and the
+ * 75%/7% point (0.35).
  */
-export const ROAD_ROI_TOP_FRACTION = 0.45;
-
-/**
- * Raised from 0.4 to 0.5 now that the ROI crop lifts genuine scores: the same
- * pothole that scored 0.374 full-frame scores 0.551 cropped, so a stricter
- * threshold cuts false positives without losing real detections.
- */
-const CONF_THRESHOLD = 0.5;
+const CONF_THRESHOLD = 0.3;
 
 let sessionPromise: Promise<InferenceSession> | null = null;
 
@@ -194,16 +192,13 @@ interface Letterbox {
   scale: number;
   padX: number;
   padY: number;
-  /** Origin of the cropped ROI within the source frame, added back on decode. */
-  roiX: number;
-  roiY: number;
 }
 
 /**
- * Crops to the road ROI, draws it into a 640x640 letterbox (aspect preserved,
- * grey padding) and fills the CHW float32 input tensor. Letterboxing rather
- * than stretching matches how the model was trained — a plain stretch would
- * distort 16:9 dashcam footage.
+ * Draws the frame into a 640x640 letterbox (aspect preserved, grey padding) and
+ * fills the CHW float32 input tensor. Letterboxing rather than stretching
+ * matches how the model was trained — a plain stretch would distort 16:9
+ * dashcam footage.
  */
 function preprocess(source: HTMLCanvasElement): { data: Float32Array; lb: Letterbox } {
   if (!scratch) {
@@ -215,21 +210,15 @@ function preprocess(source: HTMLCanvasElement): { data: Float32Array; lb: Letter
   const ctx = scratchCtx;
   if (!ctx) throw new Error("Could not acquire a 2D context for preprocessing.");
 
-  // Road ROI only — see ROAD_ROI_TOP_FRACTION.
-  const roiX = 0;
-  const roiY = Math.floor(source.height * ROAD_ROI_TOP_FRACTION);
-  const roiW = source.width;
-  const roiH = source.height - roiY;
-
-  const scale = Math.min(INPUT_SIZE / roiW, INPUT_SIZE / roiH);
-  const nw = Math.round(roiW * scale);
-  const nh = Math.round(roiH * scale);
+  const scale = Math.min(INPUT_SIZE / source.width, INPUT_SIZE / source.height);
+  const nw = Math.round(source.width * scale);
+  const nh = Math.round(source.height * scale);
   const padX = Math.floor((INPUT_SIZE - nw) / 2);
   const padY = Math.floor((INPUT_SIZE - nh) / 2);
 
   ctx.fillStyle = "rgb(114,114,114)";
   ctx.fillRect(0, 0, INPUT_SIZE, INPUT_SIZE);
-  ctx.drawImage(source, roiX, roiY, roiW, roiH, padX, padY, nw, nh);
+  ctx.drawImage(source, 0, 0, source.width, source.height, padX, padY, nw, nh);
 
   const { data: rgba } = ctx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE);
   const plane = INPUT_SIZE * INPUT_SIZE;
@@ -242,7 +231,7 @@ function preprocess(source: HTMLCanvasElement): { data: Float32Array; lb: Letter
     f[plane + i] = rgba[i * 4 + 1] / 255;
     f[2 * plane + i] = rgba[i * 4 + 2] / 255;
   }
-  return { data: f, lb: { scale, padX, padY, roiX, roiY } };
+  return { data: f, lb: { scale, padX, padY } };
 }
 
 function iou(a: DashcamDetection, b: DashcamDetection): number {
@@ -269,7 +258,7 @@ function nms(boxes: DashcamDetection[]): DashcamDetection[] {
  * Decodes output0, shape [1, 4+numClasses+32, 8400], channel-major: value c of
  * anchor i lives at `c * 8400 + i`, NOT `i * channels + c`. Boxes come out in
  * 640-space centre/size form, so each is converted to top-left and mapped back
- * through the letterbox AND the ROI offset into full source-canvas pixels.
+ * through the letterbox into source-canvas pixels.
  *
  * Verified against a composited 1280x720 frame with a pothole at a known
  * position (padY 140, non-zero — the square test images never exercised
@@ -298,8 +287,8 @@ function decode(
     const h = data[3 * anchors + i];
 
     raw.push({
-      x: (cx - w / 2 - lb.padX) / lb.scale + lb.roiX,
-      y: (cy - h / 2 - lb.padY) / lb.scale + lb.roiY,
+      x: (cx - w / 2 - lb.padX) / lb.scale,
+      y: (cy - h / 2 - lb.padY) / lb.scale,
       width: w / lb.scale,
       height: h / lb.scale,
       confidence: best,

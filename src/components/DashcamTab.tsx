@@ -7,7 +7,7 @@
  * mirrors every frame; a purpose-trained YOLOv8n pothole model (via
  * onnxruntime-web, on-device) runs against that canvas in a
  * requestAnimationFrame loop, and detections are drawn back onto it as boxes
- * + confidence scores. A pothole seen above 40% confidence is captured into a
+ * + confidence scores. A pothole seen above 30% confidence is captured into a
  * local Draft Queue, throttled to at most one capture every 3 seconds so one
  * pothole visible for several seconds of footage doesn't flood the queue
  * with near-duplicates.
@@ -29,7 +29,6 @@ import Icon from "./Icon";
 import {
   loadDetector,
   detectPotholes,
-  ROAD_ROI_TOP_FRACTION,
   type DashcamDetection,
   type DetectorProgress,
 } from "@/lib/dashcam-detect";
@@ -44,8 +43,12 @@ interface DraftFrame {
 
 /** How often detectPotholes() runs — independent of the rAF draw rate. */
 const INFER_INTERVAL_MS = 250;
-/** Below this, a detection is too unreliable to bother the queue with. */
-const MIN_CONFIDENCE = 0.4;
+/**
+ * Capture gate. Kept equal to the detector's own threshold so anything drawn
+ * on screen is also eligible for the queue — a stricter gate here silently
+ * showed boxes that could never be captured, which reads as a broken feature.
+ */
+const MIN_CONFIDENCE = 0.3;
 /** Minimum gap between two captures, regardless of how many boxes are on screen. */
 const CAPTURE_THROTTLE_MS = 3000;
 
@@ -132,29 +135,6 @@ export default function DashcamTab({
     setFrames((prev) => [frame, ...prev]);
   }, []);
 
-  /**
-   * Marks the top of the scanned road region. Without it, a citizen seeing an
-   * obvious pothole ignored high in the frame has no way to know the detector
-   * deliberately never looks there.
-   */
-  const drawRoiGuide = useCallback((ctx: CanvasRenderingContext2D) => {
-    const { width, height } = ctx.canvas;
-    const y = Math.floor(height * ROAD_ROI_TOP_FRACTION);
-    ctx.save();
-    ctx.strokeStyle = "rgba(255,255,255,0.45)";
-    ctx.lineWidth = Math.max(1, width / 640);
-    ctx.setLineDash([Math.max(4, width / 90), Math.max(4, width / 90)]);
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(width, y);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = "rgba(255,255,255,0.75)";
-    ctx.font = `${Math.max(10, Math.round(width / 64))}px sans-serif`;
-    ctx.fillText("scanning below this line", Math.round(width / 100), y - Math.round(width / 150));
-    ctx.restore();
-  }, []);
-
   const drawBoxes = useCallback((ctx: CanvasRenderingContext2D, boxes: DashcamDetection[]) => {
     if (!boxes.length) return;
     const { width } = ctx.canvas;
@@ -196,7 +176,6 @@ export default function DashcamTab({
     // with the overlay drawn on top. Never annotate what the model will see.
     fctx.drawImage(video, 0, 0, frame.width, frame.height);
     ctx.drawImage(frame, 0, 0);
-    drawRoiGuide(ctx);
     drawBoxes(ctx, lastBoxesRef.current);
 
     const now = performance.now();
@@ -228,7 +207,7 @@ export default function DashcamTab({
     }
 
     rafRef.current = requestAnimationFrame(() => loopRef.current());
-  }, [captureFrame, drawBoxes, drawRoiGuide]);
+  }, [captureFrame, drawBoxes]);
 
   useEffect(() => {
     loopRef.current = loopImpl;
