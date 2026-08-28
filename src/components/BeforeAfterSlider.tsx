@@ -9,7 +9,7 @@ export default function BeforeAfterSlider({ beforeUrl, afterUrl }: { beforeUrl: 
   return (
     <div className="w-full">
       <div 
-        className="group relative h-40 w-full select-none overflow-hidden rounded-lg shadow-[var(--shadow-1)] sm:h-48"
+        className="group relative h-40 w-full select-none overflow-hidden rounded-lg shadow-[var(--shadow-1)] sm:h-48 touch-none"
         onMouseMove={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           const pos = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));

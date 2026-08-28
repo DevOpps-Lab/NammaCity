@@ -95,7 +95,7 @@
    container collapses to 0 and MapLibre renders nothing. */
 html,
 body {
-  height: 100%;
+  height: 100dvh;
   margin: 0;
   padding: 0;
 }
@@ -105,7 +105,7 @@ body {
   color: var(--text);
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
-  overscroll-behavior: none;
+  overscroll-behavior-y: none;
 }
 
 /* Never let the page itself scroll — panes scroll internally. */
@@ -115,6 +115,11 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* For direct touch manipulation without browser scrolling */
+.touch-none {
+  touch-action: none;
 }
 
 button {

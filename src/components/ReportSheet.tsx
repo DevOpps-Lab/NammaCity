@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { Report } from "@/lib/types";
 import { STATUS_STYLES } from "@/lib/status";
 import { formatRemaining, slaProgress, now } from "@/lib/demoClock";
@@ -59,12 +59,56 @@ export default function ReportSheet({
   const R = 26;
   const C = 2 * Math.PI * R;
 
+  // Swipe to dismiss state
+  const [dragY, setDragY] = useState(0);
+  const [startY, setStartY] = useState<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    // Only allow swipe to dismiss if we are not scrolling down the content
+    setStartY(e.touches[0].clientY);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (startY === null) return;
+    const dy = e.touches[0].clientY - startY;
+    // Only allow dragging downwards
+    if (dy > 0) {
+      setDragY(dy);
+      // Prevent scrolling if dragging the header down
+      if (e.currentTarget.classList.contains("drag-handle")) {
+         e.preventDefault();
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (dragY > 80) {
+      onClose();
+    }
+    setStartY(null);
+    setDragY(0);
+  };
+
   return (
     // pb-safe so the sheet's last action isn't sitting under the home indicator
     // on an iPhone. Inert on desktop, where env() resolves to 0px.
-    <div className="sheet-in pb-safe absolute inset-x-0 bottom-0 z-20 max-h-[72%] overflow-y-auto scroll-thin rounded-t-2xl border-t border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-3)] md:inset-x-auto md:left-4 md:bottom-4 md:max-h-[80%] md:w-[400px] md:rounded-2xl md:border">
-      <div className="sticky top-0 flex items-start justify-between gap-3 bg-[var(--surface)] px-5 pt-4 pb-3">
-        <div className="min-w-0">
+    <div 
+      className="sheet-in pb-safe absolute inset-x-0 bottom-0 z-20 max-h-[72%] overflow-y-auto scroll-thin rounded-t-2xl border-t border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-3)] md:inset-x-auto md:left-4 md:bottom-4 md:max-h-[80%] md:w-[400px] md:rounded-2xl md:border"
+      style={{
+        transform: dragY > 0 ? `translateY(${dragY}px)` : undefined,
+        transition: startY === null ? "transform 0.2s ease-out" : "none"
+      }}
+    >
+      <div 
+        className="drag-handle sticky top-0 z-10 flex items-start justify-between gap-3 bg-[var(--surface)] px-5 pt-4 pb-3 touch-none"
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+      >
+        {/* Grabber pill for visual affordance */}
+        <div className="absolute left-1/2 top-1.5 h-1 w-8 -translate-x-1/2 rounded-full bg-[var(--border-strong)] opacity-50 md:hidden" />
+        
+        <div className="min-w-0 mt-1">
           <div className="flex items-center gap-2">
             <span
               className="h-2.5 w-2.5 shrink-0 rounded-full"
