@@ -90,6 +90,6 @@ export async function POST(req: Request) {
       results.push({ subject: msg.subject, matched: false });
     }
   }
-
+  console.log("POLL RESULTS:", { configured: true, processed, results });
   return NextResponse.json({ configured: true, processed, results });
 }
