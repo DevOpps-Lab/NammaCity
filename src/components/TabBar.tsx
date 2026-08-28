@@ -2,10 +2,11 @@
 
 import Icon, { type IconName } from "./Icon";
 
-export type TabKey = "report" | "reports" | "feed" | "map";
+export type TabKey = "report" | "dashcam" | "reports" | "feed" | "map";
 
 const TABS: { key: TabKey; label: string; icon: IconName }[] = [
   { key: "report", label: "Report", icon: "camera" },
+  { key: "dashcam", label: "Dashcam", icon: "video" },
   { key: "reports", label: "My Reports", icon: "file-text" },
   { key: "feed", label: "Feed", icon: "users" },
   { key: "map", label: "Map", icon: "map" },

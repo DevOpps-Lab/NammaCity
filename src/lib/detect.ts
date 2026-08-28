@@ -36,7 +36,7 @@ export interface DetectionResult {
   signals: string[];
   /** True when the image looks like a known confuser rather than a defect. */
   lowConfidence: boolean;
-  method: "heuristic-v1";
+  method: "heuristic-v1" | "roboflow-inferencejs";
 }
 
 /**

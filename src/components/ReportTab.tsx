@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Icon from "./Icon";
 import { processImage, type ProcessedImage, type BlurRegion } from "@/lib/imaging";
 import { type DetectionResult } from "@/lib/detect";
@@ -46,12 +46,23 @@ export default function ReportTab({
   displayName,
   onConfirm,
   busy,
+  initialFile,
+  onInitialFileHandled,
 }: {
   lang: Lang;
   /** First name only — a full "Aravind Kumar S" in a greeting reads like a form letter. */
   displayName: string;
   onConfirm: (c: ConfirmedReport) => void;
   busy: boolean;
+  /**
+   * A frame handed over from Dashcam mode. Runs through the exact same
+   * analyse() pipeline as a manually-picked photo — redaction, category
+   * identification, authority resolution — so a dashcam capture is never
+   * treated as pre-trusted just because a model already boxed it.
+   */
+  initialFile?: File | null;
+  /** Called once the file above has been consumed, so the parent can clear it. */
+  onInitialFileHandled?: () => void;
 }) {
   const firstName = displayName.trim().split(/\s+/)[0] || "";
   const fileRef = useRef<HTMLInputElement>(null);
@@ -142,16 +153,34 @@ export default function ReportTab({
     setStage("identified");
   }, []);
 
-  const onPick = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const f = e.target.files?.[0];
-      if (!f) return;
+  const seedFromFile = useCallback(
+    async (f: File) => {
       setFile(f);
       setRegions([]);
       await analyse(f, []);
     },
     [analyse]
   );
+
+  const onPick = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const f = e.target.files?.[0];
+      if (!f) return;
+      await seedFromFile(f);
+    },
+    [seedFromFile]
+  );
+
+  // Dashcam hands a frame over via `initialFile` instead of the file input.
+  // Runs once per file: the parent nulls it out in onInitialFileHandled,
+  // which is what stops this from re-firing on every re-render. Queued as a
+  // microtask so seeding is a reaction to the prop change, not a synchronous
+  // setState cascade inside the effect's own render pass.
+  useEffect(() => {
+    if (!initialFile) return;
+    onInitialFileHandled?.();
+    queueMicrotask(() => void seedFromFile(initialFile));
+  }, [initialFile, seedFromFile, onInitialFileHandled]);
 
   /**
    * Tap-to-redact — works everywhere, unlike the FaceDetector API.

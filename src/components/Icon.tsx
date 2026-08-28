@@ -31,7 +31,8 @@ export type IconName =
   | "refresh"
   | "layers"
   | "eye"
-  | "map";
+  | "map"
+  | "video";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   map: (
@@ -147,6 +148,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
     <>
       <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
       <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  video: (
+    <>
+      <path d="m22 8-6 4 6 4V8Z" />
+      <rect x="2" y="6" width="14" height="12" rx="2" />
     </>
   ),
 };

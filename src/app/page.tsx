@@ -6,6 +6,7 @@ import { useCivicStore } from "@/lib/store";
 import TopBar from "@/components/TopBar";
 import TabBar, { type TabKey } from "@/components/TabBar";
 import ReportTab, { type ConfirmedReport } from "@/components/ReportTab";
+import DashcamTab from "@/components/DashcamTab";
 import ReportList from "@/components/ReportList";
 import ReportSheet from "@/components/ReportSheet";
 import Feed from "@/components/Feed";
@@ -35,6 +36,7 @@ export default function Home() {
   const [outboxOpen, setOutboxOpen] = useState(false);
   const [dupes, setDupes] = useState<DuplicateCandidate[] | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<ConfirmedReport | null>(null);
+  const [dashcamPrefill, setDashcamPrefill] = useState<File | null>(null);
   const [traceOpen, setTraceOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -179,6 +181,17 @@ export default function Home() {
               displayName={store.displayName}
               onConfirm={onConfirm}
               busy={busy}
+              initialFile={dashcamPrefill}
+              onInitialFileHandled={() => setDashcamPrefill(null)}
+            />
+          )}
+
+          {tab === "dashcam" && (
+            <DashcamTab
+              onOpenReport={(file) => {
+                setDashcamPrefill(file);
+                setTab("report");
+              }}
             />
           )}
 
