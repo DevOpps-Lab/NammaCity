@@ -243,7 +243,14 @@ export async function fileReport(
   // after this resolves) reliably finds the rows.
   await deps.addReport(report);
 
-  const items = authorities.map((a) => composeComplaint(report, a));
+  // The complaint states what redaction actually achieved, so it needs the
+  // detector's real result rather than an assumption. See redactionSentence.
+  const items = authorities.map((a) =>
+    composeComplaint(report, a, {
+      facesFound: image.facesFound,
+      detectorRan: !image.manualReviewRequired,
+    })
+  );
   await deps.pushOutbox(items);
   deps.pushTrace({
     agent: "FILING",

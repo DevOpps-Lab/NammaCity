@@ -106,53 +106,185 @@ export interface TFJSRedactResult {
 }
 
 /**
- * Runs blazeface on the given image element and returns face bounding boxes
- * in source-image pixel coordinates, ready to pass to redactRegion() in
- * imaging.ts.
+ * Source dimensions, whichever element kind we were handed.
+ */
+function sizeOf(
+  src: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement
+): { w: number; h: number } {
+  if (src instanceof HTMLImageElement) return { w: src.naturalWidth, h: src.naturalHeight };
+  if (src instanceof HTMLVideoElement) return { w: src.videoWidth, h: src.videoHeight };
+  return { w: src.width, h: src.height };
+}
+
+/** blazeface returns tensors or plain arrays depending on the build. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function pair(v: any): [number, number] {
+  const a = Array.isArray(v) ? v : v?.arraySync?.() ?? [0, 0];
+  return [Number(a[0]) || 0, Number(a[1]) || 0];
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function scoreOf(p: any): number | null {
+  const raw = Array.isArray(p?.probability)
+    ? p.probability[0]
+    : typeof p?.probability === "number"
+      ? p.probability
+      : p?.probability?.arraySync?.()?.[0];
+  return typeof raw === "number" ? raw : null;
+}
+
+/**
+ * A detection score below which a box is discarded.
+ *
+ * Deliberately permissive. An earlier version used 0.6 to cut cosmetic false
+ * positives (gravel read as a face) and that was the wrong trade for this
+ * product: a spurious blur costs nothing but a missed face is the privacy
+ * failure the whole on-device pipeline exists to prevent. This only trims
+ * obvious noise; a box with no score at all is always kept.
+ */
+const MIN_SCORE = 0.25;
+
+/** Total wall-clock budget for tiled passes. Whole-frame runs regardless. */
+const DETECT_BUDGET_MS = 6_000;
+
+/**
+ * Runs blazeface over a sub-rectangle of the source, returning boxes in SOURCE
+ * pixel coordinates.
+ *
+ * The crop is drawn into a canvas at `upscale`, because that is the entire
+ * point of tiling — see detectFacesWithTFJS.
+ */
+async function runOn(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  model: any,
+  src: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement,
+  rx: number,
+  ry: number,
+  rw: number,
+  rh: number
+): Promise<BlurRegion[]> {
+  // Blazeface's input is 128x128. Feeding it a crop at ~256px means a face
+  // occupying 6% of the frame arrives ~4x larger than it would whole-frame.
+  const target = 256;
+  const scale = target / Math.max(rw, rh);
+  const cw = Math.max(1, Math.round(rw * scale));
+  const ch = Math.max(1, Math.round(rh * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = cw;
+  canvas.height = ch;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return [];
+  ctx.drawImage(src, rx, ry, rw, rh, 0, 0, cw, ch);
+
+  const predictions: unknown[] = await model.estimateFaces(canvas, false);
+  const out: BlurRegion[] = [];
+  for (const p of predictions) {
+    const score = scoreOf(p);
+    if (score !== null && score < MIN_SCORE) continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [x1, y1] = pair((p as any).topLeft);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [x2, y2] = pair((p as any).bottomRight);
+    out.push({
+      x: rx + x1 / scale,
+      y: ry + y1 / scale,
+      w: (x2 - x1) / scale,
+      h: (y2 - y1) / scale,
+    });
+  }
+  return out;
+}
+
+/** Fraction of the smaller box covered by the intersection. */
+function overlaps(a: BlurRegion, b: BlurRegion): boolean {
+  const ix = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+  const iy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+  const inter = ix * iy;
+  if (inter <= 0) return false;
+  return inter / Math.min(a.w * a.h, b.w * b.h) > 0.3;
+}
+
+/** Union overlapping boxes so one face found in two tiles is blurred once. */
+function merge(boxes: BlurRegion[]): BlurRegion[] {
+  const out: BlurRegion[] = [];
+  for (const b of boxes) {
+    if (b.w <= 1 || b.h <= 1) continue;
+    const hit = out.find((o) => overlaps(o, b));
+    if (!hit) {
+      out.push({ ...b });
+      continue;
+    }
+    const x = Math.min(hit.x, b.x);
+    const y = Math.min(hit.y, b.y);
+    hit.w = Math.max(hit.x + hit.w, b.x + b.w) - x;
+    hit.h = Math.max(hit.y + hit.h, b.y + b.h) - y;
+    hit.x = x;
+    hit.y = y;
+  }
+  return out;
+}
+
+/**
+ * Face boxes in SOURCE pixel coordinates, ready for redactRegion() in imaging.ts.
+ *
+ * TILED, and that is the whole fix. blazeface resizes whatever you give it to
+ * 128x128 before inference, so detection is a function of how much of the FRAME
+ * a face occupies, not how many pixels it has. A pothole photo is typically a
+ * wide shot of a road with a person standing in it: their head might be 60px in
+ * a 1080px-wide image, which is ~7px after the resize, and blazeface simply
+ * never sees it. A whole-frame pass reported "0 face(s)" on a photo with a
+ * clearly identifiable person in it — and the complaint email then told a
+ * municipal body the photo had been redacted.
+ *
+ * So the frame is scanned whole (cheap, catches near-camera faces) and then in
+ * overlapping tiles, each drawn at ~256px so a small face fills enough of the
+ * input to survive the resize. Boxes are mapped back and unioned, so a face
+ * caught in two tiles is blurred once.
+ *
+ * Bounded by DETECT_BUDGET_MS: on a CPU backend this is ~10 inferences, and a
+ * citizen waiting to file must not be held indefinitely. The whole-frame pass
+ * always runs, so exceeding the budget degrades to the old behaviour rather
+ * than to nothing.
  */
 export async function detectFacesWithTFJS(
   source: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement
 ): Promise<TFJSRedactResult> {
   try {
     const model = await loadModel();
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const predictions: any[] = await (model as any).estimateFaces(source, false);
-
     const tf = await import("@tensorflow/tfjs");
     const backend = tf.getBackend();
 
-    const regions: BlurRegion[] = predictions
-      // Blazeface scores every candidate, and this used to blur all of them
-      // regardless — so a pothole, a manhole rim or a patch of gravel could be
-      // pixelated as a "face" on a photo containing no people at all. The
-      // threshold is deliberately low: a missed face is a privacy failure and a
-      // spurious blur is only cosmetic, so this trims obvious noise rather than
-      // trying to be strict.
-      .filter((p) => {
-        const raw = Array.isArray(p.probability)
-          ? p.probability[0]
-          : typeof p.probability === "number"
-            ? p.probability
-            : p.probability?.arraySync?.()?.[0];
-        // A build that reports no score at all must still blur — absence of a
-        // score is not evidence that it isn't a face.
-        return typeof raw !== "number" || raw >= 0.6;
-      })
-      .map((p) => {
-      // blazeface topLeft / bottomRight are [x, y] tensors or plain arrays.
-      const tl = Array.isArray(p.topLeft) ? p.topLeft : p.topLeft.arraySync();
-      const br = Array.isArray(p.bottomRight) ? p.bottomRight : p.bottomRight.arraySync();
+    const { w, h } = sizeOf(source);
+    if (!w || !h) return { regions: [], supported: false };
 
-      return {
-        x: tl[0],
-        y: tl[1],
-        w: br[0] - tl[0],
-        h: br[1] - tl[1],
-      };
-    });
+    const found: BlurRegion[] = await runOn(model, source, 0, 0, w, h);
 
-    return { regions, supported: true, backend };
+    // 3x3 with 25% overlap, so a face on a tile seam is still whole somewhere.
+    const started = Date.now();
+    const COLS = 3;
+    const ROWS = 3;
+    const tw = w / COLS;
+    const th = h / ROWS;
+    const ox = tw * 0.25;
+    const oy = th * 0.25;
+
+    outer: for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (Date.now() - started > DETECT_BUDGET_MS) {
+          console.warn("[tfjs-redact] tiled pass hit its time budget; using what was found");
+          break outer;
+        }
+        const rx = Math.max(0, c * tw - ox);
+        const ry = Math.max(0, r * th - oy);
+        const rw = Math.min(w - rx, tw + ox * 2);
+        const rh = Math.min(h - ry, th + oy * 2);
+        if (rw < 16 || rh < 16) continue;
+        found.push(...(await runOn(model, source, rx, ry, rw, rh)));
+      }
+    }
+
+    return { regions: merge(found), supported: true, backend };
   } catch (err) {
     console.warn("[tfjs-redact] blazeface failed, falling back to manual blur:", err);
     return { regions: [], supported: false };

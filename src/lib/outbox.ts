@@ -42,9 +42,50 @@ export interface OutboxItem {
 
 let seq = 1;
 
+/**
+ * States what was actually done to the photograph — never what we hoped.
+ *
+ * This sentence is an assurance made to a government body about a photograph
+ * of a public place, so it has to survive being wrong. It used to read "Faces
+ * and identifying details were redacted on the reporting device" for every
+ * report unconditionally, and both halves of that could be false: a WhatsApp
+ * photo is never device-redacted at all, and in the app the detector can find
+ * nothing (or fail to load) and the complaint still went out claiming redaction
+ * had happened. A resident filed a photo of an identifiable worker and the mail
+ * told the council his face had been blurred.
+ *
+ * Automatic face detection is not exhaustive and saying so is the point: the
+ * recipient can then judge the photo rather than trusting a blanket claim.
+ */
+function redactionSentence(report: Report, r?: RedactionFacts): string {
+  const lead = `A geotagged photograph is attached.`;
+
+  if (report.source === "whatsapp") {
+    return `${lead} It was submitted over WhatsApp: location metadata was stripped on our server, but it was NOT redacted on the sender's device, so faces in it were not automatically blurred.`;
+  }
+  if (!r) {
+    return `${lead} Location metadata was stripped on the reporting device before transmission.`;
+  }
+  if (!r.detectorRan) {
+    return `${lead} Automatic face redaction could not run on the reporting device, so no faces were blurred. Location metadata was still stripped.`;
+  }
+  if (r.facesFound > 0) {
+    return `${lead} ${r.facesFound} face(s) were detected and pixelated on the reporting device before transmission, and location metadata was stripped. Automatic detection is not exhaustive.`;
+  }
+  return `${lead} It was scanned for faces on the reporting device and none were detected, so none were pixelated; location metadata was stripped. Automatic detection is not exhaustive — please treat any identifiable person in the image accordingly.`;
+}
+
+/** What the on-device redaction pass actually achieved for this photo. */
+export interface RedactionFacts {
+  facesFound: number;
+  /** False when TF.js could not load or run at all. */
+  detectorRan: boolean;
+}
+
 export function composeComplaint(
   report: Report,
-  authority: AuthorityRecord
+  authority: AuthorityRecord,
+  redaction?: RedactionFacts
 ): OutboxItem {
   const slaHours = Math.round((report.slaDeadline - report.createdAt) / 3_600_000);
   const w = report.routing;
@@ -75,9 +116,7 @@ export function composeComplaint(
     // Claiming the stronger guarantee for both would be a false assurance made
     // to a government body about a photograph of a public place — precisely the
     // kind of confident fiction this product exists to refuse.
-    report.source === "whatsapp"
-      ? `A geotagged photograph is attached. It was submitted over WhatsApp: location metadata was stripped on our server, but it was NOT redacted on the sender's device, so faces in it were not automatically blurred.`
-      : `A geotagged photograph is attached. Faces and identifying details were redacted on the reporting device before transmission.`,
+    redactionSentence(report, redaction),
     ``,
     `This complaint is tracked publicly. It will be marked resolved only when a`,
     `resident confirms the repair with a photograph from the same location — not`,

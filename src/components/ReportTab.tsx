@@ -494,6 +494,30 @@ export default function ReportTab({
           )}
         </div>
 
+        {/* PRIVACY, SAID OUT LOUD RATHER THAN IN A COLLAPSED PANEL.
+            "0 face(s) auto-redacted" was already reported — inside "Privacy and
+            detector details", collapsed by default, which is where a resident
+            never looks. So a photo of an identifiable person was filed with the
+            app believing it had redacted nothing because there was nothing to
+            redact. Automatic detection is not exhaustive, and the moment that
+            matters is BEFORE the button, not in a disclosure afterwards. */}
+        {image && (image.manualReviewRequired || image.facesFound === 0) && (
+          <div className="mx-4 mb-1 rounded-xl border border-[var(--warning)] bg-[var(--surface-2)] px-3 py-2.5">
+            <p className="text-[12px] font-semibold text-[var(--warning)]">
+              {image.manualReviewRequired
+                ? "Face blurring could not run"
+                : "No faces were detected"}
+            </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-[var(--text-dim)]">
+              {image.manualReviewRequired
+                ? "Nothing in this photo has been blurred automatically."
+                : "Nothing has been blurred. Face detection can miss people who are small in frame, turned away, or in shadow."}{" "}
+              <strong>Tap anyone in the photo above to blur them</strong> before you file — it
+              goes to a government office and onto a public ledger.
+            </p>
+          </div>
+        )}
+
         {/* --- the one button --- */}
         <div className="border-t border-[var(--border)] bg-[var(--surface-2)] p-4">
           <button
