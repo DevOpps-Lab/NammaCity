@@ -179,3 +179,96 @@ export function twimlSilent(): Response {
 export function hashPhone(phone: string): string {
   return crypto.createHash("sha256").update(phone).digest("hex");
 }
+
+// ------------------------------------------------------------------ outbound
+
+/**
+ * The Twilio WhatsApp Sandbox number. Identical for every Twilio account, so it
+ * is a usable default rather than one more thing to configure before the
+ * feature does anything. Override with TWILIO_WHATSAPP_FROM once you move off
+ * the sandbox to a real WhatsApp sender.
+ */
+const SANDBOX_FROM = "+14155238886";
+
+export function whatsappFrom(): string {
+  return (process.env.TWILIO_WHATSAPP_FROM ?? SANDBOX_FROM)
+    .replace(/^whatsapp:/, "")
+    .trim();
+}
+
+export type SendOutcome =
+  | { ok: true; sid: string }
+  /** `code` is Twilio's numeric error code when it gave one — 63016 especially. */
+  | { ok: false; code: number | null; message: string };
+
+/**
+ * Sends a WhatsApp message through the Twilio REST API.
+ *
+ * Everything else in this integration replies with TwiML inside the webhook
+ * response, which needs no API call and no `From` number. A notification is the
+ * one thing that cannot work that way: it is not a reply to anything, so it has
+ * to be an outbound call.
+ *
+ * THE 24-HOUR WINDOW. WhatsApp only allows a business to send a freeform
+ * message within 24 hours of the customer's last inbound message. Outside that,
+ * Twilio rejects with error 63016 and the only way through is a message
+ * template pre-approved by Meta. This is a platform rule, not something this
+ * code can route around — and it bites exactly the notification this feature
+ * most wants to send, since an SLA breach is typically days after the citizen
+ * last messaged. So: the attempt is made, the failure is recorded on the
+ * notification row, and the tracking link (which has no such limit) remains the
+ * channel that always works. Returning a result instead of throwing is what
+ * lets the caller persist that distinction.
+ */
+export async function sendWhatsApp(to: string, body: string): Promise<SendOutcome> {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  if (!sid || !token) return { ok: false, code: null, message: "Twilio is not configured" };
+
+  const form = new URLSearchParams({
+    From: `whatsapp:${whatsappFrom()}`,
+    To: `whatsapp:${to.replace(/^whatsapp:/, "")}`,
+    Body: body,
+  });
+
+  try {
+    const res = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages.json`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${sid}:${token}`).toString("base64")}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: form.toString(),
+      }
+    );
+
+    const payload = (await res.json().catch(() => null)) as {
+      sid?: string;
+      code?: number;
+      message?: string;
+    } | null;
+
+    if (!res.ok) {
+      return {
+        ok: false,
+        code: payload?.code ?? null,
+        message: payload?.message ?? `Twilio ${res.status} ${res.statusText}`,
+      };
+    }
+    if (!payload?.sid) {
+      return { ok: false, code: null, message: "Twilio accepted the send but returned no sid" };
+    }
+    return { ok: true, sid: payload.sid };
+  } catch (error) {
+    return {
+      ok: false,
+      code: null,
+      message: error instanceof Error ? error.message : "send failed",
+    };
+  }
+}
+
+/** Twilio 63016: freeform send outside the 24-hour customer service window. */
+export const OUTSIDE_WINDOW_CODE = 63016;

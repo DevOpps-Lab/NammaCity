@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient, adminConfigured } from "@/lib/supabase/admin";
 import { fetchUnseen, markSeen, imapConfigured } from "@/lib/email/inbound";
 import { applyInboundReply } from "@/lib/correspondence-apply";
+import { findIntakeUserId } from "@/lib/whatsapp/intake";
+import { sweepAndNotify } from "@/lib/whatsapp/notify";
 import type { InboundReply } from "@/lib/correspondence";
 
 /**
@@ -37,11 +39,40 @@ export async function POST(req: Request) {
   if (!(await authorised(req))) {
     return NextResponse.json({ error: "unauthorised" }, { status: 401 });
   }
-  if (!imapConfigured() || !adminConfigured()) {
+  if (!adminConfigured()) {
     return NextResponse.json({ configured: false, processed: 0 });
   }
 
   const admin = createAdminClient();
+
+  // WHATSAPP LEDGER FIRST, and deliberately outside the IMAP guard below.
+  // Reports filed over WhatsApp belong to a shared intake account nobody ever
+  // logs into, so the app's own timer never sweeps them and their escalation
+  // notifications never fall due. Until now the only trigger was another
+  // inbound WhatsApp message, which meant a quiet ledger stalled at 'filed' —
+  // exactly the failure this product exists to refuse.
+  //
+  // This route is the one already shaped for the job: reachable by a cron with
+  // INBOUND_POLL_SECRET as well as by the open app, and both callers want the
+  // same thing — the ledger moving forward without a browser. It is NOT gated
+  // on Gmail, because a deployment can perfectly well take WhatsApp reports
+  // without email configured, and gating it there would silently freeze them.
+  // A deployment that has never seen a WhatsApp message has no intake user, so
+  // this costs one indexed lookup and stops.
+  let whatsapp: { swept: number; notified: number } | null = null;
+  try {
+    const intakeUser = await findIntakeUserId(admin);
+    if (intakeUser) whatsapp = await sweepAndNotify(admin, intakeUser);
+  } catch (err) {
+    // Never fail the poll over this — they are independent jobs that happen to
+    // share a trigger.
+    console.warn("[poll] whatsapp sweep failed", err);
+  }
+
+  if (!imapConfigured()) {
+    return NextResponse.json({ configured: false, processed: 0, whatsapp });
+  }
+
   const messages = await fetchUnseen();
 
   let processed = 0;
@@ -90,6 +121,6 @@ export async function POST(req: Request) {
       results.push({ subject: msg.subject, matched: false });
     }
   }
-  console.log("POLL RESULTS:", { configured: true, processed, results });
-  return NextResponse.json({ configured: true, processed, results });
+  console.log("POLL RESULTS:", { configured: true, processed, results, whatsapp });
+  return NextResponse.json({ configured: true, processed, results, whatsapp });
 }

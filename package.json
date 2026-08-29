@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "verify:whatsapp": "node --experimental-strip-types scripts/verify-whatsapp.mjs",
+    "verify:guards": "npx tsx scripts/verify-guards.ts",
+    "verify:rls": "node scripts/verify-rls.mjs",
+    "demo:whatsapp": "node scripts/demo-whatsapp.mjs"
   },
   "dependencies": {
     "@atproto/api": "^0.20.31",

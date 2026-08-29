@@ -8,7 +8,9 @@
  * (server) — no verification, no closure.
  */
 
-const MODEL = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
+// gemini-2.5-flash was retired for new API keys — Google 404s it with
+// "no longer available to new users". Override with GEMINI_MODEL.
+const MODEL = process.env.GEMINI_MODEL ?? "gemini-3.6-flash";
 const ENDPOINT = (model: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 
@@ -129,7 +131,11 @@ export async function verifyAfterPhoto(input: {
         generationConfig: {
           responseMimeType: "application/json",
           responseSchema: SCHEMA,
-          thinkingConfig: { thinkingBudget: 0 },
+          // No thinkingConfig: `thinkingBudget: 0` was a latency/cost trim on
+          // 2.5-flash, and gemini-3.x rejects the whole request with a bare
+          // 400 "invalid argument" for it — which surfaces here as an
+          // unexplained refusal to verify. Not worth re-adding under a
+          // version sniff for the milliseconds it saved.
           maxOutputTokens: 1024,
         },
       }),

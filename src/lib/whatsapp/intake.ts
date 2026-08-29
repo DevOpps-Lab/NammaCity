@@ -12,6 +12,8 @@ import type { ProcessedImage } from "../imaging";
 import type { DetectionResult } from "../detect";
 import type { IssueCategory, Report } from "../types";
 import { categoryLabel } from "../categories";
+import { trackUrl } from "../base-url";
+import { formatPlace } from "../place";
 import {
   clearPending,
   getPending,
@@ -19,6 +21,7 @@ import {
   withinCooldown,
   type PendingReport,
 } from "./session";
+import { recordNotifyTarget, sweepAndNotify, WEBHOOK_SEND_BUDGET } from "./notify";
 import { hashPhone, downloadTwilioMedia } from "./twilio";
 
 /**
@@ -56,20 +59,8 @@ let intakeUserIdCache: string | null = null;
  * what makes the link work without a login at all.
  */
 export async function getIntakeUserId(admin: SupabaseClient): Promise<string> {
-  if (intakeUserIdCache) return intakeUserIdCache;
-
-  // The profiles row is created by the handle_new_user trigger on signup, so it
-  // is a cheap way to find an existing intake user without paging auth.users.
-  const { data: existing } = await admin
-    .from("profiles")
-    .select("id")
-    .eq("email", INTAKE_EMAIL)
-    .maybeSingle();
-
-  if (existing?.id) {
-    intakeUserIdCache = existing.id as string;
-    return intakeUserIdCache;
-  }
+  const existing = await findIntakeUserId(admin);
+  if (existing) return existing;
 
   const { data: created, error } = await admin.auth.admin.createUser({
     email: INTAKE_EMAIL,
@@ -83,11 +74,29 @@ export async function getIntakeUserId(admin: SupabaseClient): Promise<string> {
   return intakeUserIdCache;
 }
 
-export function baseUrl(): string {
-  const explicit = process.env.PUBLIC_BASE_URL;
-  if (explicit) return explicit.replace(/\/$/, "");
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return "http://localhost:3000";
+/**
+ * The intake account if it already exists, WITHOUT provisioning one.
+ *
+ * Separate from `getIntakeUserId` because callers that are only sweeping the
+ * ledger (the inbound poll, a cron) must not conjure a user as a side effect of
+ * looking: on a deployment where nobody has ever used WhatsApp, the answer is
+ * "there is nothing to sweep", not "here is a new account".
+ *
+ * The profiles row is created by the handle_new_user trigger on signup, so it
+ * is a cheap way to find the user without paging auth.users.
+ */
+export async function findIntakeUserId(admin: SupabaseClient): Promise<string | null> {
+  if (intakeUserIdCache) return intakeUserIdCache;
+
+  const { data } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("email", INTAKE_EMAIL)
+    .maybeSingle();
+
+  if (!data?.id) return null;
+  intakeUserIdCache = data.id as string;
+  return intakeUserIdCache;
 }
 
 // ------------------------------------------------------------------ replies
@@ -298,13 +307,24 @@ Your photo is saved — reply with your location again in a minute.`,
   if (stampErr) console.error("[whatsapp] could not stamp source/read token", stampErr);
 
   await clearPending(admin, phoneHash);
+
+  // Remember where to reach this citizen. Until now the raw number was
+  // deliberately never persisted (sessions are keyed by its hash), but a hash
+  // cannot be messaged and `claims_done` is a state the loop cannot leave
+  // without them. Bounded and deleted on closure — see lib/whatsapp/notify.ts.
+  await recordNotifyTarget(admin, intakeUserId, report.id, phone);
+
   await dispatchComplaints(admin, intakeUserId, report.id);
-  await sweepIntakeLedger(admin, intakeUserId);
+  // Every inbound message nudges the whole intake ledger forward and sends any
+  // notification that fell due. A small send budget because a citizen is
+  // waiting on this reply and Twilio gives up after 15s — see notify.ts.
+  await sweepAndNotify(admin, intakeUserId, WEBHOOK_SEND_BUDGET);
 
   const token = stamped?.public_token as string | undefined;
-  const where = routing.ward
-    ? `Ward ${routing.ward}${routing.zoneName ? `, ${routing.zoneName}` : ""}`
-    : (routing.cityName ?? `${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+  // Shared with the app so the WhatsApp reply names a place the same way the
+  // report sheet does — and so a ward-less Tier 2 fix still says the locality
+  // rather than falling all the way back to the city.
+  const where = formatPlace(routing, { lat, lng });
   const deadline = new Date(report.slaDeadline).toLocaleString("en-IN", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -330,38 +350,13 @@ Your photo is saved — reply with your location again in a minute.`,
         : `⚠️ We don't hold a verified contact for this area, so this went to the general municipal office. Unconfirmed.`
     );
   }
-  if (token) lines.push(``, `Track it here:`, `${baseUrl()}/track/${token}`);
+  if (token) lines.push(``, `Track it here:`, trackUrl(token));
   lines.push(
     ``,
-    `Only you can close this report — we'll ask for an after-photo when the agency claims it's fixed.`
+    `We'll message you here when the agency responds. This closes only on an after-photo showing the problem gone — you can send one from the link above at any time.`
   );
 
   return { reply: lines.join("\n"), report };
-}
-
-/**
- * Advances any overdue WhatsApp reports through past_sla and escalated.
- *
- * The app sweeps the citizen's own ledger on a timer while they have it open.
- * Nobody ever logs in as the intake account, and `civic_sweep` reads
- * `auth.uid()` — NULL under the service-role client — so without this these
- * reports would sit at 'filed' forever, deadline receding, never escalating.
- *
- * Piggybacking on inbound messages rather than adding a cron: each WhatsApp
- * conversation nudges the whole intake ledger forward, which is enough for a
- * ledger that only grows through this same channel. Failure is logged, never
- * fatal — a sweep problem must not cost a citizen their filed report.
- */
-async function sweepIntakeLedger(admin: SupabaseClient, userId: string): Promise<void> {
-  try {
-    const { error } = await admin.rpc("civic_sweep_owner", {
-      p_owner: userId,
-      p_now: Date.now(),
-    });
-    if (error) console.warn("[whatsapp] sweep failed", error.message);
-  } catch (err) {
-    console.warn("[whatsapp] sweep threw", err);
-  }
 }
 
 /**

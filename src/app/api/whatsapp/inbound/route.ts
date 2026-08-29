@@ -104,7 +104,14 @@ export async function POST(request: Request) {
   } catch (error) {
     // Never leak an internal message to a citizen, but do not go silent either
     // — a bare 500 shows up in WhatsApp as nothing at all.
-    console.error("[whatsapp] intake failed", error);
+    //
+    // Unwrapped deliberately: an Error passed as an object logs as `{}` through
+    // a JSON logger, and `{}` is worthless on the one path that costs a citizen
+    // their filed report. Message and stack, or the raw value if it is neither.
+    console.error(
+      "[whatsapp] intake failed:",
+      error instanceof Error ? `${error.message}\n${error.stack}` : JSON.stringify(error)
+    );
     return twiml(
       "Something went wrong on our side and your report wasn't filed. Please try again in a moment."
     );

@@ -8,6 +8,7 @@ import { llmAnalyze, type LLMAnalysisResult } from "@/lib/llm-analyze";
 import { locate, resolveAuthority, type LocationFix, type ResolveOutcome } from "@/lib/pipeline";
 import type { IssueCategory, CategorySource, Severity } from "@/lib/types";
 import { SEVERITY_OPTIONS } from "@/lib/severity";
+import { formatPlace } from "@/lib/place";
 import { CATEGORY_OPTIONS } from "@/lib/detect";
 import { t, type Lang } from "@/lib/i18n";
 
@@ -419,8 +420,8 @@ export default function ReportTab({
           <dl className="mt-4 space-y-2 border-t border-[var(--border)] pt-3 text-[12px]">
             <Row label="Location">
               {fix?.exact ? (
-                ok?.routing.zoneName ? (
-                  `Ward ${ok.routing.ward}, ${ok.routing.zoneName}`
+                ok?.routing ? (
+                  formatPlace(ok.routing, fix)
                 ) : (
                   `${fix.lat.toFixed(4)}, ${fix.lng.toFixed(4)}`
                 )
@@ -487,7 +488,7 @@ export default function ReportTab({
                 {Math.round(image.bytes / 1024)} KB uploaded
               </p>
               <p className="text-[var(--text-faint)]">
-                Category and severity identified by Gemini 2.5 Flash. You confirmed the result.
+                Category and severity identified by Gemini. You confirmed the result.
               </p>
             </div>
           )}

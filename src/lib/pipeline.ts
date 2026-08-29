@@ -5,6 +5,7 @@ import type { AuthorityRecord } from "./authorities";
 import type { OutboxItem } from "./outbox";
 import { composeComplaint } from "./outbox";
 import { now, HOUR } from "./demoClock";
+import { formatPlace } from "./place";
 import { getSLA } from "./sla-lookup";
 
 /**
@@ -201,9 +202,9 @@ export async function fileReport(
     id,
     lat: fix.lat,
     lng: fix.lng,
-    place: routing.zoneName
-      ? `Ward ${routing.ward}, ${routing.zoneName}`
-      : (routing.cityName ?? `~${fix.lat.toFixed(4)}, ${fix.lng.toFixed(4)}`),
+    // formatPlace, not an inline template: this used to guard on zoneName and
+    // interpolate ward, printing "Ward undefined, <area>" for every Tier 2 fix.
+    place: formatPlace(routing, fix),
     category,
     categorySource: c.categorySource,
     categoryConfidence: c.categoryConfidence,

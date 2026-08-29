@@ -1,62 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { classifyReply, applyReply, type InboundReply } from "./correspondence";
 import { composeReply } from "./outbox";
-import { composeUpdate, guardText } from "./escalation";
+import { composeUpdate } from "./escalation";
 import { sendMail, normalizeMessageId } from "./email/gmail";
 import { verifyAfterPhoto } from "./verify-vision";
-import { postSocial } from "./social";
+import { postReportUpdate } from "./public-post";
+import { notifyStatus } from "./whatsapp/notify";
 import * as db from "./db";
 import { now } from "./demoClock";
-import type { Report } from "./types";
-
-/**
- * Post a status update to the Namma Chennai timeline (and to real X when keys
- * are set), server-side, so the email round-trip drives the public timeline the
- * same way the client simulate path does. Best-effort: never blocks the reply.
- */
-async function postUpdateToTimeline(
-  admin: SupabaseClient,
-  report: Report,
-  userId: string
-): Promise<void> {
-  const guard = guardText(composeUpdate(report).text);
-  const text = (guard.cleaned || composeUpdate(report).text).slice(0, 280);
-  let source: "x" | "bluesky" | "simulated" = "simulated";
-  let tweetId: string | null = null;
-  let tweetUrl: string | null = null;
-
-  let image: { content: Buffer; mimeType: string } | null = null;
-  if (report.photoUrl && !report.photoUrl.startsWith("data:")) {
-    try {
-      const res = await fetch(report.photoUrl);
-      if (res.ok) {
-        image = {
-          content: Buffer.from(await res.arrayBuffer()),
-          mimeType: res.headers.get("content-type") ?? "image/jpeg",
-        };
-      }
-    } catch {
-      /* post text-only */
-    }
-  }
-  const posted = await postSocial({ text, image });
-  if (posted) {
-    source = posted.platform;
-    tweetId = posted.id;
-    tweetUrl = posted.url;
-  }
-
-  await admin.from("public_posts").insert({
-    report_id: report.id,
-    kind: "update",
-    body: text,
-    source,
-    tweet_id: tweetId,
-    tweet_url: tweetUrl,
-    author: userId,
-    at: now(),
-  });
-}
 
 /**
  * SERVER-SIDE correspondence handler — the twin of `store.receiveReply()`.
@@ -120,7 +71,7 @@ export async function applyInboundReply(
   // bare acknowledgement is noise, so it is skipped.
   if (classified.kind !== "acknowledged") {
     try {
-      await postUpdateToTimeline(admin, updated, input.userId);
+      await postReportUpdate(admin, updated, input.userId, "update");
     } catch {
       /* best-effort */
     }
@@ -206,6 +157,35 @@ export async function applyInboundReply(
         }
       }
     }
+  }
+
+  // TELL THE CITIZEN. A report filed over WhatsApp has no browser to notify and
+  // no account to email, so `claims_done` — the one state the loop cannot leave
+  // without a human — would otherwise sit unseen until they happened to reopen
+  // their tracking link. `notifyStatus` is a no-op for reports filed in the app
+  // (no stored number) and when Twilio is unconfigured, so this costs one
+  // indexed lookup on the ordinary path.
+  //
+  // Only one message: if the authority's own photo already verified and closed
+  // the case, asking for an after-photo would be asking for work already done.
+  try {
+    if (closed) {
+      await notifyStatus(admin, {
+        owner: input.userId,
+        reportId: report.id,
+        kind: "verified_fixed",
+      });
+    } else if (classified.kind === "claims_done") {
+      await notifyStatus(admin, {
+        owner: input.userId,
+        reportId: report.id,
+        kind: "claims_done",
+      });
+    }
+  } catch (err) {
+    // Best-effort by design: a notification failure must never cost us the
+    // correspondence record, which is the part that is actually load-bearing.
+    console.warn("[correspondence] citizen notification failed", err);
   }
 
   return {

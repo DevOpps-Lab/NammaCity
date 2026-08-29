@@ -9,10 +9,12 @@ when that standard is missed. **A report closes only on a verified after-photo**
 never on an authority's word alone.
 
 ```bash
-npm run dev          # http://localhost:3000
+npm run dev              # http://localhost:3000
 npm run build
-npx tsx scripts/verify-guards.ts   # adversarial checks on the refusal paths
-node scripts/verify-rls.mjs        # two-account check that direct writes stay owner-scoped
+npm run verify:guards    # adversarial checks on the refusal paths
+npm run verify:rls       # two-account check that direct writes stay owner-scoped
+npm run verify:whatsapp  # replays the whole WhatsApp conversation, no Twilio needed
+npm run demo:whatsapp    # forces a breach so escalation is demonstrable on stage
 ```
 
 ## The four tabs
@@ -43,6 +45,88 @@ simulated.
 > that replaces "only the filer can close"; it is enforced by the
 > `verify_and_close` database function, which requires a photo.
 
+## A fifth way in: WhatsApp
+
+Most people who can photograph a pothole do not want to install an app to report
+it. So there is a second intake path with no app, no account and no login:
+message a photo to the number, then share a location pin.
+
+```
+citizen ──photo──▶ /api/whatsapp/inbound ──▶ classify (Gemini)
+        ──pin────▶                       ──▶ resolve authority (tiers 1-4)
+                                          ──▶ file + email the agency
+        ◀──"Filed as CA-1042 … track it here" ──┘
+```
+
+The report travels **the same `fileReport` pipeline** as one filed in the app —
+same sequence-minted id, same tiered routing, same SLA source, same complaint
+text, same outbox row. It appears on the public Feed and Map like any other.
+
+Three things are genuinely different, and the app says so rather than implying
+otherwise:
+
+- **Faces are not blurred.** In-app photos are redacted on-device before upload
+  (`src/lib/imaging.ts`, canvas + TF.js). A photo arriving from a Twilio media
+  URL has already reached our server, so only EXIF can be stripped. The report
+  records `source = 'whatsapp'` and the tracking page states this plainly.
+- **The owner is a service account.** `reports.user_id` is NOT NULL, so every
+  bot-filed report belongs to one shared intake user. Citizens reach their own
+  report through an unguessable `public_token`, which is what makes the tracking
+  link work with no login at all.
+- **Closing is stricter, not looser.** A tracking link is a bearer credential,
+  not an identity — so unlike the app, there is no manual-confirm fallback.
+  `/api/track/verify` closes a report only when the vision check independently
+  agrees the after-photo shows the same place with the defect gone.
+
+### What comes back to the citizen
+
+An authority claiming "done" is the one state the loop cannot leave without a
+human, so the intake reply promises a follow-up and the app now sends one:
+
+| Event | Message | Delivers? |
+|---|---|---|
+| `claims_done` | "They say it's fixed. It is **not** closed. Send an after-photo." | usually yes |
+| `past_sla` | passed the authority's own published deadline | usually **no** |
+| `escalated` | published to the public ledger | usually **no** |
+| `verified_fixed` | closed on a verified photo | usually yes |
+
+The "usually no" is a WhatsApp platform rule, not a bug: a business may only
+send a **freeform** message within **24 hours** of the citizen's last inbound
+message. Outside that, Twilio returns error 63016 and delivery needs a
+Meta-approved template. Failures are recorded on
+`whatsapp_notifications.delivery_error` rather than swallowed, and the tracking
+link — which has no such limit — remains the channel that always works.
+
+### Wiring it up (about five minutes)
+
+1. Twilio Console → Messaging → **Try it out** → Send a WhatsApp message.
+   Activate the sandbox and note the join keyword.
+2. Sandbox settings → *When a message comes in*: `https://<your-host>/api/whatsapp/inbound` (POST).
+3. From your phone, WhatsApp `join <keyword>` to **+1 415 523 8886**.
+4. Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `PUBLIC_BASE_URL`.
+
+The sandbox session expires three days after joining — rejoin before a demo.
+Local development needs a tunnel (ngrok); if the tunnel rewrites the host, set
+`TWILIO_WEBHOOK_URL` to the URL you configured, verbatim, or the signature check
+will fail.
+
+`/api/whatsapp/inbound` is the one route in this codebase where an
+unauthenticated request writes to the database and sends mail, so the
+`X-Twilio-Signature` check is load-bearing and **fails closed** — no token, no
+signature, or a bad signature is a 403 before anything else is even read.
+
+### Demoing it without Twilio
+
+`npm run verify:whatsapp` replays the entire two-message conversation against a
+local dev server with correctly-signed requests, and asserts what landed in the
+database: the report, its routing tier, the outbox row, the cleared session, the
+notification ledger, and every refusal path on the closing endpoint.
+
+`npm run demo:whatsapp` moves the newest WhatsApp report's deadline seven hours
+into the past and runs the **real** sweep over it, so breach → escalation →
+public post → notification is demonstrable without waiting out an SLA. It prints
+the tracking link to finish the loop with an after-photo.
+
 ## Setup
 
 Accounts and reports live in Supabase Postgres, so the app needs a project
@@ -61,6 +145,9 @@ before it will run.
    supabase/migrations/0006_email_dispatch.sql              # real-send bookkeeping
    supabase/migrations/0007_social_feed.sql                 # comments, public posts, verify_and_close
    supabase/migrations/0008_bluesky_source.sql              # 'bluesky' as a post source
+   supabase/migrations/0009_whatsapp_intake.sql             # public_token, source, sessions
+   supabase/migrations/0010_sweep_owner.sql                 # SLA sweep for ownerless reports
+   supabase/migrations/0011_whatsapp_notify.sql             # outbound notification ledger
    ```
 
 3. **Turn off email confirmation** for the demo:
@@ -81,6 +168,8 @@ before it will run.
    | `GEMINI_API_KEY` | optional — auto category + after-photo verification |
    | `BLUESKY_IDENTIFIER`, `BLUESKY_APP_PASSWORD` | optional — real public posts (free) |
    | `X_API_KEY` / `X_API_SECRET` / `X_ACCESS_TOKEN` / `X_ACCESS_SECRET` | optional — X posting (needs paid credits) |
+   | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | optional — file a report over WhatsApp |
+   | `PUBLIC_BASE_URL` | absolute origin for tracking links sent over WhatsApp |
 
    Every optional block degrades gracefully when unset.
 

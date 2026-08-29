@@ -329,6 +329,228 @@ if (filedToken) {
   check(malformed.status === 404, `malformed token 404s (${malformed.status})`);
 }
 
+// 7. OUTBOUND NOTIFICATIONS.
+//
+// The filing reply promises "we'll message you when the agency responds", so
+// two things have to be true: the number has to be recorded at filing, and a
+// status change has to produce exactly one notification row per (report, kind)
+// no matter how many times the sweep runs over it.
+//
+// Sending itself is not asserted. With sandbox or dummy credentials Twilio
+// answers 401, and outside the 24-hour window it answers 63016 — so a delivered
+// notification is not something a local run can honestly claim. What IS
+// asserted is the part this codebase controls: recorded, addressed, deduped,
+// and the failure written down rather than swallowed.
+console.log("\nOutbound notifications");
+let notifyDb = null;
+if (filedToken && SUPA_URL && SERVICE_KEY) {
+  notifyDb = createClient(SUPA_URL, SERVICE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const { data: report } = await notifyDb
+    .from("reports")
+    .select("id, user_id, status")
+    .eq("public_token", filedToken)
+    .maybeSingle();
+
+  if (check(Boolean(report), "filed report is still readable")) {
+    const { data: target, error: targetErr } = await notifyDb
+      .from("whatsapp_notify")
+      .select("phone")
+      .eq("report_owner", report.user_id)
+      .eq("report_id", report.id)
+      .maybeSingle();
+    if (targetErr) bad(`notify target query failed: ${targetErr.message}`);
+    check(target?.phone === PHONE, `notify target recorded the sender (${target?.phone ?? "none"})`);
+
+    // Backdate past the deadline AND past the +6h escalation gap, so one sweep
+    // walks it filed -> past_sla -> escalated.
+    const { error: backdateErr } = await notifyDb
+      .from("reports")
+      .update({ sla_deadline: Date.now() - 7 * 3600_000 })
+      .eq("user_id", report.user_id)
+      .eq("id", report.id);
+    if (backdateErr) bad(`could not backdate the deadline: ${backdateErr.message}`);
+
+    // The sweep runs on the inbound webhook path, so filing another report is
+    // what drives it. (The other trigger is /api/inbound/poll, which needs a
+    // session or INBOUND_POLL_SECRET and so is not exercised here.)
+    const nudge = async (phone) => {
+      await post({
+        From: `whatsapp:${phone}`,
+        Body: "sweep nudge",
+        NumMedia: "1",
+        MediaUrl0: `${BASE}/icons/icon-192.png`,
+        MediaContentType0: "image/png",
+      });
+      await post({ From: `whatsapp:${phone}`, Latitude: "13.0389", Longitude: "80.2492" });
+    };
+    await nudge("+919000000003");
+
+    const { data: swept } = await notifyDb
+      .from("reports")
+      .select("status")
+      .eq("user_id", report.user_id)
+      .eq("id", report.id)
+      .maybeSingle();
+    check(
+      swept?.status === "escalated",
+      `overdue report swept to 'escalated' (got ${swept?.status})`
+    );
+
+    const notifications = async () => {
+      const { data, error } = await notifyDb
+        .from("whatsapp_notifications")
+        .select("kind, delivered, delivery_error, phone")
+        .eq("report_owner", report.user_id)
+        .eq("report_id", report.id);
+      if (error) {
+        bad(`notification query failed: ${error.message}`);
+        return [];
+      }
+      return data ?? [];
+    };
+
+    const first = await notifications();
+    const escalations = first.filter((n) => n.kind === "escalated");
+    if (check(escalations.length === 1, `exactly one 'escalated' notification (${escalations.length})`)) {
+      check(escalations[0].phone === PHONE, "notification is addressed to the filer");
+      // Delivered or not, it must not be silent about which.
+      check(
+        escalations[0].delivered === true || Boolean(escalations[0].delivery_error),
+        `outcome recorded (delivered=${escalations[0].delivered}, error=${escalations[0].delivery_error ?? "none"})`
+      );
+    }
+
+    // THE IDEMPOTENCE CHECK, which is the one that matters: civic_sweep_owner
+    // returns every escalated report on every call, not just new ones, so a
+    // second sweep must not produce a second message.
+    await nudge("+919000000004");
+    const second = await notifications();
+    check(
+      second.filter((n) => n.kind === "escalated").length === 1,
+      `a second sweep did NOT duplicate the notification (${second.filter((n) => n.kind === "escalated").length})`
+    );
+  }
+} else {
+  console.log("  - skipped (needs a filed report and Supabase service-role credentials)");
+}
+
+// 8. CLOSING A REPORT FROM THE TRACKING LINK.
+//
+// The gap this closes: a citizen who filed over WhatsApp has no account, and
+// every closing path in the app needs one, so their report could never finish.
+// The rule enforced here is deliberately STRICTER than the in-app path — a
+// token is a bearer credential, not an identity, so the vision check is
+// mandatory and there is no manual-confirm fallback.
+console.log("\nTrack-link verification endpoint");
+if (filedToken) {
+  const VERIFY = `${BASE}/api/track/verify`;
+  const png = fs.readFileSync(path.join(process.cwd(), "public", "icons", "icon-192.png"));
+  const photo = `data:image/png;base64,${png.toString("base64")}`;
+
+  const send = (body) =>
+    fetch(VERIFY, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      redirect: "manual",
+    });
+
+  // Reachable at all — the proxy must not 307 this to /login either.
+  const malformed = await send({ token: "not-a-uuid", afterDataUrl: photo });
+  check(malformed.status === 400, `malformed token rejected with 400 (${malformed.status})`);
+  check(malformed.status !== 307, "not redirected to /login");
+
+  const notAnImage = await send({ token: filedToken, afterDataUrl: "data:text/html;base64,PGI+" });
+  check(notAnImage.status === 415, `non-image body rejected with 415 (${notAnImage.status})`);
+
+  // 5MB is the bucket's own ceiling (0002_storage.sql).
+  const oversized = await send({
+    token: filedToken,
+    afterDataUrl: `data:image/jpeg;base64,${"A".repeat(7_000_000)}`,
+  });
+  check(oversized.status === 413, `oversized photo rejected with 413 (${oversized.status})`);
+
+  const unknown = await send({
+    token: "00000000-0000-0000-0000-000000000000",
+    afterDataUrl: photo,
+  });
+  check(unknown.status === 404, `unknown token 404s (${unknown.status})`);
+
+  // A real attempt.
+  //
+  // This deliberately does NOT assert a fixed verdict. The outcome legitimately
+  // depends on the environment: no GEMINI_API_KEY gives `unconfigured`, and
+  // with a key the model gets an honest look at the before/after pair and may
+  // reasonably close (the fixture sends the same image twice — same place, no
+  // defect visible, which is what "repaired" looks like). An earlier version of
+  // this script hardcoded "must refuse" and then failed the moment vision
+  // started working, which is a test asserting its own assumptions rather than
+  // the product's rules.
+  //
+  // What IS asserted is the invariant that has to hold whichever way it goes:
+  // a close is accompanied by a stored photo and a closed report, and a refusal
+  // changes nothing at all.
+  let closedNow = false;
+  const attempt = await send({ token: filedToken, afterDataUrl: photo });
+  const body = await attempt.json().catch(() => null);
+  if (check(Boolean(body), `attempt returned JSON (${attempt.status})`)) {
+    closedNow = body.closed === true;
+    check(typeof body.closed === "boolean", `outcome is explicit (closed=${body.closed})`);
+    check(
+      ["closed", "unconfigured", "vision_error", "wrong_place", "still_present", "already_closed", "rate_limited"].includes(
+        body.reason
+      ),
+      `outcome is machine-readable (reason=${body.reason})`
+    );
+    check(typeof body.headline === "string" && body.headline.length > 0, "outcome has a headline");
+    if (body.reason === "unconfigured") {
+      console.log("     note: GEMINI_API_KEY is unset, so closure cannot be exercised end to end");
+    }
+    if (closedNow) {
+      console.log("     note: vision verified the fixture and CLOSED it — the full loop ran");
+    }
+  }
+
+  // The per-token brake, which matters because this is the most expensive
+  // unauthenticated request in the codebase (a Gemini call + a storage write).
+  const rapid = await send({ token: filedToken, afterDataUrl: photo });
+  check(rapid.status === 429, `a second attempt within the gap is throttled (${rapid.status})`);
+
+  // THE INVARIANT UNDERNEATH ALL OF IT: the database state must agree with what
+  // the citizen was told. A report that reported "closed" is closed AND has the
+  // verifying photo the DB function refuses to close without; a report told
+  // anything else is byte-for-byte untouched.
+  if (notifyDb) {
+    const { data: after } = await notifyDb
+      .from("reports")
+      .select("status, after_photo_url")
+      .eq("public_token", filedToken)
+      .maybeSingle();
+
+    if (closedNow) {
+      check(
+        after?.status === "verified_fixed",
+        `close was persisted (status ${after?.status})`
+      );
+      check(Boolean(after?.after_photo_url), "the verifying after-photo was stored");
+    } else {
+      check(
+        after?.status !== "verified_fixed",
+        `report was NOT closed by a failed check (status ${after?.status})`
+      );
+      check(!after?.after_photo_url, "no after-photo was stored for a failed check");
+    }
+  }
+
+  // The page itself must offer the affordance.
+  const page = await fetch(`${BASE}/track/${filedToken}`);
+  const html = await page.text();
+  check(/after-photo/i.test(html), "tracking page offers the after-photo action");
+}
+
 console.log(
   failures === 0
     ? `\n✓ ALL CHECKS PASSED\n`

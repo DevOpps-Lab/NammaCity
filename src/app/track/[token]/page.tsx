@@ -4,6 +4,7 @@ import { adminConfigured, createAdminClient } from "@/lib/supabase/admin";
 import { fetchReportByToken } from "@/lib/db";
 import { categoryLabel } from "@/lib/categories";
 import { STATUS_STYLES } from "@/lib/status";
+import TrackVerify from "@/components/TrackVerify";
 import type { AuthorityRecord } from "@/lib/authorities";
 
 /**
@@ -18,8 +19,17 @@ import type { AuthorityRecord } from "@/lib/authorities";
  * sequential report ids — and the query is scoped to exactly that token, never
  * to anything else supplied in the URL.
  *
- * Read-only by construction. There is no action on this page: verifying,
- * escalating and closing a report all remain the owner's, in the app.
+ * One action, and only one: submitting an after-photo that closes the report
+ * (TrackVerify -> /api/track/verify). It is here because without it a citizen
+ * who filed over WhatsApp could watch their report forever and never finish it
+ * — closure needs an account, and theirs belongs to the shared intake user.
+ * Escalating, commenting and backing a case still require the app.
+ *
+ * The token is what authorises that action, and a token is a bearer credential,
+ * not an identity — so it is never sufficient on its own: the server closes
+ * only when the vision check independently agrees the photo shows the same
+ * place with the defect gone. See the route for why that is stricter than the
+ * in-app path.
  */
 
 export const runtime = "nodejs";
@@ -181,6 +191,24 @@ export default async function TrackPage({
           </div>
         </div>
 
+        {/* The whole point of the page for the person who filed it. Hidden once
+            closed, because there is nothing left to verify. */}
+        {report.status !== "verified_fixed" && <TrackVerify token={token} />}
+
+        {report.status === "verified_fixed" && report.afterPhotoUrl && (
+          <div className="card mt-3 overflow-hidden rounded-2xl border border-[var(--border)]">
+            <p className="px-4 pt-3 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-faint)]">
+              The verified after-photo
+            </p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={report.afterPhotoUrl}
+              alt="The repair, after verification"
+              className="mt-2 max-h-[42vh] w-full object-cover"
+            />
+          </div>
+        )}
+
         {/* Said plainly, because the app claims on-device redaction and this
             intake path cannot deliver it. */}
         {report.source === "whatsapp" && (
@@ -192,8 +220,9 @@ export default async function TrackPage({
         )}
 
         <p className="mt-3 text-center text-[11px] leading-relaxed text-[var(--text-faint)]">
-          Anyone with this link can view the report. Only the citizen who filed it can close it,
-          and only with an after-photo that passes a check.
+          Anyone with this link can view this report, and can close it — but only with an
+          after-photo that passes a check showing the same place with the problem gone. An
+          authority saying &ldquo;done&rdquo; is not enough on its own.
         </p>
       </div>
     </div>

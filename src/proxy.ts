@@ -33,12 +33,20 @@ import { fetchWithRetry } from "@/lib/supabase/fetch";
 // RLS policy is owner-scoped and the anon key would read nothing. The trailing
 // slash matters: these are startsWith prefixes, so a bare "/track" would also
 // match a future "/tracking-something".
+//
+// /api/track/ is the action half of that page — the after-photo that closes a
+// report. Open for the same reason (there is no session to gate on) and with
+// the same discipline: the route authorises on the public_token alone, and
+// because a token is a bearer credential and not an identity, it will only
+// close a report when the vision check independently agrees the defect is gone.
+// A token by itself closes nothing.
 const PUBLIC_PATHS = [
   "/login",
   "/signup",
   "/auth",
   "/api/inbound/poll",
   "/api/whatsapp",
+  "/api/track/",
   "/track/",
 ];
 
