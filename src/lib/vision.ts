@@ -32,8 +32,24 @@ const SCHEMA = {
     severity: { type: "STRING", enum: [...SEVERITY_VALUES] },
     confidence: { type: "NUMBER" },
     reason: { type: "STRING" },
+    // Face boxes ride along on the call we were already making. The WhatsApp
+    // intake has no browser to run blazeface in, so this is the only chance to
+    // find a face before the photo reaches an authority and a public feed.
+    faces: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          ymin: { type: "NUMBER" },
+          xmin: { type: "NUMBER" },
+          ymax: { type: "NUMBER" },
+          xmax: { type: "NUMBER" },
+        },
+        required: ["ymin", "xmin", "ymax", "xmax"],
+      },
+    },
   },
-  required: ["category", "severity", "confidence", "reason"],
+  required: ["category", "severity", "confidence", "reason", "faces"],
 };
 
 const SYSTEM = `You analyse photographs of civic defects reported by residents in Indian cities.
@@ -45,6 +61,11 @@ Return exactly:
                severe > 40% or if it poses an immediate safety hazard)
   confidence — a single calibrated number 0-1 covering both answers
   reason     — at most 12 words naming the visible evidence
+  faces      — a bounding box for EVERY human face visible, however small,
+               distant, partially turned or in shadow. Coordinates normalised
+               0-1000 as ymin, xmin, ymax, xmax. Empty array if there are none.
+               Err towards including a box: a missed face is a privacy failure,
+               an extra one only blurs some road.
 
 Calibration rules:
 - If the photo is dark, blurry, heavily cropped, or ambiguous, return confidence < 0.4.
@@ -64,6 +85,14 @@ export function visionConfigured(): boolean {
  * set a key, `rateLimited` means the free tier is spent (worth saying out loud
  * to a citizen), `refused` means the model declined to answer.
  */
+/** Normalised 0-1000, as Gemini returns detection boxes. */
+export interface FaceBox {
+  ymin: number;
+  xmin: number;
+  ymax: number;
+  xmax: number;
+}
+
 export type VisionResult =
   | {
       ok: true;
@@ -71,6 +100,7 @@ export type VisionResult =
       severity: LLMSeverity;
       confidence: number;
       reason: string;
+      faces: FaceBox[];
     }
   | { ok: false; kind: "unconfigured" }
   | { ok: false; kind: "refused" }
@@ -144,6 +174,22 @@ export async function analyseImage(dataUrl: string): Promise<VisionResult> {
         ? (parsed.severity as LLMSeverity)
         : "moderate",
       reason: String(parsed.reason ?? "").slice(0, 120),
+      faces: Array.isArray(parsed.faces)
+        ? (parsed.faces as unknown[])
+            .map((f) => f as Record<string, unknown>)
+            .map((f) => ({
+              ymin: Number(f.ymin),
+              xmin: Number(f.xmin),
+              ymax: Number(f.ymax),
+              xmax: Number(f.xmax),
+            }))
+            .filter(
+              (b) =>
+                [b.ymin, b.xmin, b.ymax, b.xmax].every(Number.isFinite) &&
+                b.ymax > b.ymin &&
+                b.xmax > b.xmin
+            )
+        : [],
     };
   } catch (error) {
     return {

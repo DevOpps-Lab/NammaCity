@@ -61,7 +61,12 @@ function redactionSentence(report: Report, r?: RedactionFacts): string {
   const lead = `A geotagged photograph is attached.`;
 
   if (report.source === "whatsapp") {
-    return `${lead} It was submitted over WhatsApp: location metadata was stripped on our server, but it was NOT redacted on the sender's device, so faces in it were not automatically blurred.`;
+    const n = r?.facesFound ?? 0;
+    const what =
+      n > 0
+        ? `${n} face(s) were detected and pixelated`
+        : `it was scanned for faces and none were detected`;
+    return `${lead} It was submitted over WhatsApp, so redaction happened on our server rather than on the sender's device: ${what}, and location metadata was stripped, before the photo was stored or sent. Automatic detection is not exhaustive.`;
   }
   if (!r) {
     return `${lead} Location metadata was stripped on the reporting device before transmission.`;

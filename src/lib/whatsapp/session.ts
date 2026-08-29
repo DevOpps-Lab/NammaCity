@@ -27,6 +27,8 @@ export interface PendingReport {
   severity: LLMSeverity;
   categoryConfidence: number;
   reason: string;
+  /** Faces pixelated server-side before the photo was stored. */
+  facesBlurred: number;
   updatedAt: number;
 }
 
@@ -52,6 +54,7 @@ export async function getPending(
     severity: data.severity as LLMSeverity,
     categoryConfidence: data.category_confidence ?? 0,
     reason: data.reason ?? "",
+    facesBlurred: data.faces_blurred ?? 0,
     updatedAt: new Date(data.updated_at).getTime(),
   };
 }
@@ -72,6 +75,7 @@ export async function setPending(
       severity: pending.severity,
       category_confidence: pending.categoryConfidence,
       reason: pending.reason,
+      faces_blurred: pending.facesBlurred,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "phone_hash" }

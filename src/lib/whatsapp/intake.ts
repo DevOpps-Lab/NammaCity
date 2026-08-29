@@ -4,7 +4,8 @@ import * as db from "../db";
 import { fileReport, type PipelineDeps } from "../pipeline";
 import { resolveAuthorityFull } from "../resolve-authority";
 import { toSeverity } from "../severity";
-import { analyseImage, visionConfigured } from "../vision";
+import { analyseImage, visionConfigured, type FaceBox } from "../vision";
+import { pixelateFaces } from "../redact-server";
 import { stripJpegMetadata } from "../exif";
 import { sendMail, gmailConfigured, normalizeMessageId } from "../email/gmail";
 import { complaintTextToHtml } from "../email/render";
@@ -143,49 +144,85 @@ export async function handlePhoto(
     return `That doesn't look like a photo. Send a picture of the problem instead.`;
   }
 
-  // Metadata removal. Faces cannot be pixelated server-side (imaging.ts is
-  // browser-only), and the report records source='whatsapp' so that gap is
-  // visible rather than implied away.
+  // EXIF first, on the raw bytes.
   const cleaned =
     media.contentType === "image/jpeg" ? stripJpegMetadata(media.bytes) : media.bytes;
 
+  // CLASSIFY BEFORE STORING. The order matters: the same Gemini call that
+  // identifies the defect also returns face boxes, and we want the unredacted
+  // original never to reach the bucket at all. It used to upload first and
+  // classify second, which stored the raw frame and then had nothing to do
+  // about it.
+  let category: IssueCategory = "other";
+  let severity: PendingReport["severity"] = "moderate";
+  let confidence = 0;
+  let reason = "";
+  let note = "";
+  let faces: FaceBox[] = [];
+  let visionRan = false;
+
+  if (visionConfigured()) {
+    const dataUrl = `data:${media.contentType};base64,${Buffer.from(cleaned).toString("base64")}`;
+    const analysis = await analyseImage(dataUrl);
+    if (analysis.ok) {
+      visionRan = true;
+      category = analysis.category;
+      severity = analysis.severity;
+      confidence = analysis.confidence;
+      reason = analysis.reason;
+      faces = analysis.faces;
+    } else if (analysis.kind === "rateLimited") {
+      note = `
+
+(Our image AI is rate-limited right now, so the category is unconfirmed and faces were NOT blurred.)`;
+    } else {
+      note = `
+
+(We couldn't auto-identify it, so the category is unconfirmed and faces were NOT blurred.)`;
+    }
+  } else {
+    note = `
+
+(Image AI isn't configured, so the category is unconfirmed and faces were NOT blurred.)`;
+  }
+
+  // Redact server-side. Weaker than the app's on-device pass — the original did
+  // reach our server — but it happens before the photo is stored, mailed to an
+  // authority or published on the public ledger, which is what actually matters
+  // to the person standing in the road.
+  const redacted = await pixelateFaces(cleaned, faces);
+  const facesBlurred = redacted.facesBlurred;
+  if (faces.length && !redacted.ok) {
+    console.error("[whatsapp] faces were detected but pixelation failed — storing unredacted");
+  }
+
   const intakeUserId = await getIntakeUserId(admin);
-  const ext = media.contentType === "image/png" ? "png" : "jpg";
+  // pixelateFaces re-encodes as JPEG, so the stored type follows what we
+  // actually produced rather than what arrived.
+  const outType = facesBlurred > 0 ? "image/jpeg" : media.contentType;
+  const ext = outType === "image/png" ? "png" : "jpg";
   // A pending key, because there is no report id yet — one is minted only once
   // the location arrives and the report is actually filed.
   const path = `${intakeUserId}/pending-${crypto.randomUUID()}.${ext}`;
 
   const { error: upErr } = await admin.storage
     .from("report-photos")
-    .upload(path, cleaned, { contentType: media.contentType, upsert: true });
+    .upload(path, redacted.bytes, { contentType: outType, upsert: true });
   if (upErr) {
     console.error("[whatsapp] photo upload failed", upErr);
     return `We couldn't save that photo. Please try again in a moment.`;
   }
   const photoUrl = admin.storage.from("report-photos").getPublicUrl(path).data.publicUrl;
 
-  // Classify now so the location step is a fast reply rather than a wait.
-  let category: IssueCategory = "other";
-  let severity: PendingReport["severity"] = "moderate";
-  let confidence = 0;
-  let reason = "";
-  let note = "";
+  if (visionRan) {
+    note +=
+      facesBlurred > 0
+        ? `
 
-  if (visionConfigured()) {
-    const dataUrl = `data:${media.contentType};base64,${Buffer.from(cleaned).toString("base64")}`;
-    const analysis = await analyseImage(dataUrl);
-    if (analysis.ok) {
-      category = analysis.category;
-      severity = analysis.severity;
-      confidence = analysis.confidence;
-      reason = analysis.reason;
-    } else if (analysis.kind === "rateLimited") {
-      note = `\n\n(Our image AI is rate-limited right now, so the category is unconfirmed.)`;
-    } else {
-      note = `\n\n(We couldn't auto-identify it, so the category is unconfirmed.)`;
-    }
-  } else {
-    note = `\n\n(Image AI isn't configured, so the category is unconfirmed.)`;
+🔒 ${facesBlurred} face(s) blurred before your photo was stored.`
+        : `
+
+🔒 No faces detected, so nothing was blurred.`;
   }
 
   await setPending(admin, {
@@ -197,6 +234,7 @@ export async function handlePhoto(
     severity,
     categoryConfidence: confidence,
     reason,
+    facesBlurred,
   });
 
   const what =
@@ -256,8 +294,10 @@ Your photo is saved — reply with your location again in a minute.`,
     width: 0,
     height: 0,
     aHash: "",
-    facesFound: 0,
-    manualReviewRequired: true,
+    // Real numbers now: faces were pixelated server-side at photo time, so the
+    // complaint email can state what happened instead of assuming.
+    facesFound: pending.facesBlurred,
+    manualReviewRequired: false,
     bytes: 0,
     faceRegions: [],
   };
@@ -267,7 +307,7 @@ Your photo is saved — reply with your location again in a minute.`,
     confidence: pending.categoryConfidence,
     areaFraction: 0,
     signals: [
-      `Submitted over WhatsApp — EXIF stripped server-side, faces NOT redacted on device`,
+      `Submitted over WhatsApp — EXIF stripped and ${pending.facesBlurred} face(s) pixelated server-side (not on the sender's device)`,
       pending.reason ? `Gemini: ${pending.reason}` : `Category unconfirmed by vision`,
     ],
     lowConfidence: pending.categoryConfidence < 0.45,

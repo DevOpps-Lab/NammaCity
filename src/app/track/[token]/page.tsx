@@ -213,9 +213,10 @@ export default async function TrackPage({
             intake path cannot deliver it. */}
         {report.source === "whatsapp" && (
           <p className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-[11px] leading-relaxed text-[var(--text-dim)]">
-            Submitted over WhatsApp. Location metadata was stripped from this photo on our
-            server, but unlike a report filed in the app it was <strong>not</strong> redacted
-            on the sender&apos;s device — faces in it were never automatically blurred.
+            Submitted over WhatsApp. Faces were pixelated and location metadata stripped on
+            our server before this photo was stored — but unlike a report filed in the app,
+            the unedited original did reach our server first, and automatic face detection is
+            not exhaustive.
           </p>
         )}
 
