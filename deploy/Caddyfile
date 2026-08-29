@@ -29,10 +29,10 @@ civicagent.example.com {
 	@models path /models/*
 	header @models Cache-Control "public, max-age=604800, immutable"
 
-	log {
-		output file /var/log/caddy/civicagent.log
-		format json
-	}
+	# No `log` block on purpose. The packaged Caddy unit sandboxes /var/log/caddy,
+	# so a file logger fails the config load with "permission denied" — and Caddy
+	# refuses the WHOLE config, so you lose TLS over a log file. journald already
+	# has it: `journalctl -u caddy -f`.
 }
 
 # NOTE on the Twilio signature.
