@@ -3,7 +3,8 @@
 import { useRef, useState } from "react";
 import type { Report } from "@/lib/types";
 import { evaluateAfterPhoto, VERIFY_SCENARIOS } from "@/lib/verification";
-import { processImage } from "@/lib/imaging";
+import { processImage, rasterizeForDetection } from "@/lib/imaging";
+import { llmAnalyze } from "@/lib/llm-analyze";
 import Icon from "./Icon";
 
 /**
@@ -48,16 +49,29 @@ export default function VerifyPanel({
     setAttested(false);
   };
 
-  // Real after-photo -> on-device redact -> vision check (or manual fallback).
+  // Real after-photo -> detect faces/plates (Gemini) -> redact on device ->
+  // vision check (or manual fallback).
   const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
     setBusy(true);
     reset();
     try {
-      const img = await processImage(f, []);
+      const frame = await rasterizeForDetection(f);
+      const det = await llmAnalyze(frame.dataUrl, frame.width, frame.height);
+      const img = await processImage(f, {
+        faceRegions: det.detection.faces,
+        plateRegions: det.detection.plates,
+        manualRegions: [],
+        detectionOk: det.detection.ran,
+      });
       setAfterUrl(img.dataUrl);
-      onTrace("After-photo redacted on device. Verifying…");
+      onTrace(
+        det.detection.ran
+          ? `After-photo redacted (${img.facesFound} face(s), ${img.platesFound} plate(s)). Verifying…`
+          : "After-photo could not be auto-checked for faces or plates — review it before closing. Verifying…",
+        det.detection.ran ? "info" : "warn"
+      );
 
       let payload: {
         configured?: boolean;

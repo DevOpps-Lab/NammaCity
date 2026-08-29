@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Icon from "./Icon";
-import { processImage, type ProcessedImage, type BlurRegion } from "@/lib/imaging";
+import {
+  processImage,
+  rasterizeForDetection,
+  type ProcessedImage,
+  type BlurRegion,
+} from "@/lib/imaging";
 import { type DetectionResult } from "@/lib/detect";
 import { llmAnalyze, type LLMAnalysisResult } from "@/lib/llm-analyze";
 import { locate, resolveAuthority, type LocationFix, type ResolveOutcome } from "@/lib/pipeline";
@@ -79,6 +84,10 @@ export default function ReportTab({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const [reblurring, setReblurring] = useState(false);
+  // Set when detection could not run — the user is then asked to cover anything
+  // sensitive by hand and tick a confirmation before filing is allowed.
+  const [redactNote, setRedactNote] = useState<string | null>(null);
+  const [manualCleared, setManualCleared] = useState(false);
 
   const reset = () => {
     setStage("idle");
@@ -93,25 +102,47 @@ export default function ReportTab({
     setResolved(null);
     setPickerOpen(false);
     setShowDetail(false);
+    setRedactNote(null);
+    setManualCleared(false);
   };
 
-  /** Redact → call LLM for category+severity → locate → resolve authority. */
-  const analyse = useCallback(async (f: File, blur: BlurRegion[]) => {
+  /**
+   * Detect faces + plates and classify in ONE Gemini call (`llmAnalyze`), redact
+   * on-device from the returned boxes, then locate + resolve authority. The
+   * un-redacted downscaled frame is the only thing that leaves the device; the
+   * category/severity call and everything after work on the redacted result.
+   */
+  const analyse = useCallback(async (f: File) => {
     setStage("analysing");
 
+    let processed: ProcessedImage | null = null;
     try {
-      setStep("Redacting faces on your device…");
-      const processed = await processImage(f, blur);
-      setImage(processed);
+      setStep("Preparing your photo…");
+      const frame = await rasterizeForDetection(f);
 
-      // LLM analysis and geolocation run in parallel — independent of each other.
-      setStep("Analysing the image and finding your location…");
+      // ONE call: category + severity + face boxes + plate boxes. Runs alongside
+      // geolocation. llmAnalyze has its own 30s timeout so this cannot hang.
+      setStep("Checking for faces and number plates, and identifying the issue…");
       const [result, position] = await Promise.all([
-        llmAnalyze(processed.dataUrl),
+        llmAnalyze(frame.dataUrl, frame.width, frame.height),
         locate(),
       ]);
       setLlmResult(result);
       setFix(position);
+      setRedactNote(
+        result.detection.ran
+          ? null
+          : result.note ?? "Cover any faces or number plates by hand, then confirm."
+      );
+
+      setStep("Redacting…");
+      processed = await processImage(f, {
+        faceRegions: result.detection.faces,
+        plateRegions: result.detection.plates,
+        manualRegions: [],
+        detectionOk: result.detection.ran,
+      });
+      setImage(processed);
 
       // Pre-fill from LLM; user can override either.
       const chosen = result.state === "unavailable" ? null : result.category;
@@ -130,9 +161,28 @@ export default function ReportTab({
       }
     } catch (err) {
       // Something unexpected threw — don't leave the user frozen.
-      // Surface the error as an unavailable LLM result so the form still
-      // renders and the user can pick category/severity manually.
       console.error("[analyse] unexpected error:", err);
+
+      // If redaction never completed, still give the user a photo to work with,
+      // held behind the manual-review gate.
+      if (!processed) {
+        try {
+          processed = await processImage(f, {
+            faceRegions: [],
+            plateRegions: [],
+            manualRegions: [],
+            detectionOk: false,
+          });
+          setImage(processed);
+          setRedactNote(
+            "We couldn't check this photo automatically. Tap every face and number plate, then confirm below."
+          );
+        } catch {
+          setStage("idle");
+          return;
+        }
+      }
+
       const pos = await locate().catch(() => ({ lat: 13.0389, lng: 80.2492, exact: false }));
       setFix(pos);
       setLlmResult({
@@ -142,6 +192,7 @@ export default function ReportTab({
         reason: "",
         state: "unavailable",
         note: "Something went wrong during analysis. Choose the category and severity below.",
+        detection: { faces: [], plates: [], ran: false },
       });
       setPickerOpen(true);
     }
@@ -153,7 +204,8 @@ export default function ReportTab({
     async (f: File) => {
       setFile(f);
       setRegions([]);
-      await analyse(f, []);
+      setManualCleared(false);
+      await analyse(f);
     },
     [analyse]
   );
@@ -204,10 +256,12 @@ export default function ReportTab({
       setRegions(next);
       setReblurring(true);
       try {
-        const processed = await processImage(file, next, {
+        // Re-render only: reuse the boxes from the first pass, never re-detect.
+        const processed = await processImage(file, {
           faceRegions: image.faceRegions,
-          supported: !image.manualReviewRequired,
-          backend: image.detectionBackend,
+          plateRegions: image.plateRegions,
+          manualRegions: next,
+          detectionOk: !image.manualReviewRequired,
         });
         setImage(processed);
       } catch (err) {
@@ -277,8 +331,8 @@ export default function ReportTab({
           </div>
         </button>
         <p className="rise-in mt-4 text-center text-[11px] leading-relaxed text-[var(--text-faint)]">
-          Everything below happens before you commit: the photo is redacted on
-          your device, the issue is identified, and we work out which agency is
+          Everything below happens before you commit: faces and number plates are
+          covered, the issue is identified, and we work out which agency is
           responsible. You confirm once.
         </p>
       </Shell>
@@ -313,7 +367,10 @@ export default function ReportTab({
 
   // ------------------------------------------------------------ identified
   const ok = resolved?.ok === true ? resolved : null;
-  const canFile = Boolean(category && ok) && !busy;
+  // When detection could not run we cannot know the frame is clean, so filing
+  // waits on the user covering anything sensitive and confirming.
+  const redactionOk = !image.manualReviewRequired || manualCleared;
+  const canFile = Boolean(category && ok) && !busy && redactionOk;
   // Map LLM severity string to the Severity type the pipeline expects.
   const mappedSeverity: Severity = SEVERITY_OPTIONS.find(s => s.value === severity)?.mapped ?? "medium";
 
@@ -331,7 +388,7 @@ export default function ReportTab({
             className="max-h-[38vh] w-full cursor-crosshair bg-[var(--surface)] object-contain"
           />
           <span className="absolute bottom-2 left-2 rounded bg-black/70 px-2 py-1 text-[10px] text-white">
-            {reblurring ? "Blurring…" : t(lang, "tapToBlur")}
+            {reblurring ? "Covering…" : t(lang, "tapToBlur")}
           </span>
           {reblurring && (
             <span className="absolute right-2 top-2 h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -339,6 +396,44 @@ export default function ReportTab({
         </div>
 
         <div className="p-4">
+          {/* --- redaction status: blocks filing when detection couldn't run --- */}
+          {image.manualReviewRequired ? (
+            <div className="mb-3 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-2.5">
+              <p className="text-[12px] font-semibold text-[var(--warning)]">
+                Automatic face &amp; number-plate check didn&apos;t run
+              </p>
+              <p className="mt-1 text-[11px] leading-relaxed text-[var(--text-dim)]">
+                {redactNote ??
+                  "Tap every face and number plate in the photo above to cover it, then confirm."}
+              </p>
+              <label className="mt-2 flex items-start gap-2 text-[11px] font-medium text-[var(--text)]">
+                <input
+                  type="checkbox"
+                  checked={manualCleared}
+                  onChange={(e) => setManualCleared(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>I&apos;ve covered every face &amp; number plate (or there are none)</span>
+              </label>
+            </div>
+          ) : image.facesFound > 0 || image.platesFound > 0 ? (
+            <p className="mb-3 rounded-lg border border-[var(--success)]/30 bg-[var(--success)]/10 px-3 py-2 text-[11px] leading-relaxed text-[var(--success)]">
+              {`Covered ${[
+                image.facesFound > 0 && `${image.facesFound} face${image.facesFound > 1 ? "s" : ""}`,
+                image.platesFound > 0 &&
+                  `${image.platesFound} number plate${image.platesFound > 1 ? "s" : ""}`,
+              ]
+                .filter(Boolean)
+                .join(" and ")}. Tap anything it missed.`}
+            </p>
+          ) : (
+            <p className="mb-3 text-[11px] leading-relaxed text-[var(--text-faint)]">
+              No faces or number plates detected. Detection can miss people who
+              are small, turned away or in shadow — tap anyone it missed before
+              filing.
+            </p>
+          )}
+
           {/* --- category: the auto-identified answer, always changeable --- */}
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -478,45 +573,22 @@ export default function ReportTab({
                 }
               >
                 {image.manualReviewRequired
-                  ? "TF.js blazeface could not run in this browser — tap any faces or number plates yourself."
-                  : `${image.facesFound} face(s) auto-redacted by TF.js blazeface`}
-                {image.detectionBackend && ` (backend: ${image.detectionBackend})`}.
-                {regions.length > 0 && ` ${regions.length} area(s) manually blurred by you.`}
+                  ? "Automatic face / number-plate detection could not run — cover anything sensitive yourself."
+                  : `${image.facesFound} face(s) and ${image.platesFound} number plate(s) auto-covered.`}
+                {regions.length > 0 && ` ${regions.length} area(s) you covered by hand.`}
               </p>
               <p>
-                EXIF stripped · the original never leaves your phone ·{" "}
-                {Math.round(image.bytes / 1024)} KB uploaded
+                EXIF stripped. The original photo stays on your phone; a downscaled
+                copy is sent once to Gemini to find faces &amp; number plates.{" "}
+                {Math.round(image.bytes / 1024)} KB uploaded on filing.
               </p>
               <p className="text-[var(--text-faint)]">
-                Category and severity identified by Gemini. You confirmed the result.
+                Faces, number plates, category and severity all assessed by Gemini
+                in one call. You confirmed the result.
               </p>
             </div>
           )}
         </div>
-
-        {/* PRIVACY, SAID OUT LOUD RATHER THAN IN A COLLAPSED PANEL.
-            "0 face(s) auto-redacted" was already reported — inside "Privacy and
-            detector details", collapsed by default, which is where a resident
-            never looks. So a photo of an identifiable person was filed with the
-            app believing it had redacted nothing because there was nothing to
-            redact. Automatic detection is not exhaustive, and the moment that
-            matters is BEFORE the button, not in a disclosure afterwards. */}
-        {image && (image.manualReviewRequired || image.facesFound === 0) && (
-          <div className="mx-4 mb-1 rounded-xl border border-[var(--warning)] bg-[var(--surface-2)] px-3 py-2.5">
-            <p className="text-[12px] font-semibold text-[var(--warning)]">
-              {image.manualReviewRequired
-                ? "Face blurring could not run"
-                : "No faces were detected"}
-            </p>
-            <p className="mt-1 text-[11px] leading-relaxed text-[var(--text-dim)]">
-              {image.manualReviewRequired
-                ? "Nothing in this photo has been blurred automatically."
-                : "Nothing has been blurred. Face detection can miss people who are small in frame, turned away, or in shadow."}{" "}
-              <strong>Tap anyone in the photo above to blur them</strong> before you file — it
-              goes to a government office and onto a public ledger.
-            </p>
-          </div>
-        )}
 
         {/* --- the one button --- */}
         <div className="border-t border-[var(--border)] bg-[var(--surface-2)] p-4">
@@ -552,6 +624,11 @@ export default function ReportTab({
             )}
             {busy ? "Filing…" : "Report this issue"}
           </button>
+          {!redactionOk && (
+            <p className="mt-2 text-center text-[10px] text-[var(--warning)]">
+              Confirm you&apos;ve covered any faces &amp; number plates to file.
+            </p>
+          )}
           <button
             onClick={reset}
             className="mt-2 w-full text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)]"

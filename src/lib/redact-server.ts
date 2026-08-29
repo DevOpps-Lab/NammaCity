@@ -4,12 +4,12 @@ import type { FaceBox } from "./vision";
 /**
  * SERVER-SIDE FACE REDACTION, for photos that never touched a browser.
  *
- * The app redacts on the device (imaging.ts + blazeface) and the original never
- * leaves the phone — that is the strong guarantee, and it stays the one we
+ * The app redacts on the device (imaging.ts) from boxes a Gemini call returns,
+ * and the original file never leaves the phone — that is the guarantee we
  * prefer. But a photo messaged over WhatsApp arrives as a Twilio media URL: no
- * browser, no canvas, no TF.js, and by then the unredacted original is already
- * on our server. The previous position was to strip EXIF, record
- * `source='whatsapp'` and say plainly that faces were not blurred.
+ * browser, no canvas, and by then the unredacted original is already on our
+ * server. The previous position was to strip EXIF, record `source='whatsapp'`
+ * and say plainly that faces were not blurred.
  *
  * Saying it plainly is not the same as it being acceptable. A pothole photo
  * routinely contains whoever is standing in the road, and this pipeline mails

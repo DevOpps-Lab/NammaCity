@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { adminConfigured, createAdminClient } from "@/lib/supabase/admin";
 import { fetchReportByToken, verifyAndClose } from "@/lib/db";
 import { verifyAfterPhoto } from "@/lib/verify-vision";
+import { analyseImage } from "@/lib/vision";
+import { pixelateFaces } from "@/lib/redact-server";
 import { composeUpdate } from "@/lib/escalation";
 import { notifyStatus } from "@/lib/whatsapp/notify";
 import { now } from "@/lib/demoClock";
@@ -229,11 +231,30 @@ export async function POST(request: Request) {
     });
   }
 
-  const ext = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
+  // Redact faces + number plates SERVER-SIDE before storing. The browser has no
+  // on-device detector any more, and this route is reachable from a public page,
+  // so the frame arrives un-redacted (downscaled + EXIF-stripped by
+  // rasterizeForDetection). Boxes come from a Gemini call; `pixelateFaces` is
+  // the same sharp mosaic the WhatsApp intake uses. A detection failure must not
+  // cost the citizen their close — we log and store what we have.
+  let storeBytes: Uint8Array = bytes;
+  let storeMime = mimeType;
+  const vision = await analyseImage(afterDataUrl);
+  if (vision.ok) {
+    const red = await pixelateFaces(bytes, [...vision.faces, ...vision.plates]);
+    if (red.ok && red.facesBlurred > 0) {
+      storeBytes = red.bytes; // pixelateFaces always emits JPEG
+      storeMime = "image/jpeg";
+    }
+  } else {
+    console.warn("[track] redaction detection unavailable, storing frame as sent");
+  }
+
+  const ext = storeMime === "image/png" ? "png" : storeMime === "image/webp" ? "webp" : "jpg";
   const path = `${owner}/${report.id}-after-${now()}.${ext}`;
   const { error: upErr } = await admin.storage
     .from("report-photos")
-    .upload(path, bytes, { contentType: mimeType, upsert: true });
+    .upload(path, storeBytes, { contentType: storeMime, upsert: true });
   if (upErr) {
     console.error("[track] after-photo upload failed", upErr);
     return say(502, {

@@ -297,9 +297,13 @@ Your photo is saved — reply with your location again in a minute.`,
     // Real numbers now: faces were pixelated server-side at photo time, so the
     // complaint email can state what happened instead of assuming.
     facesFound: pending.facesBlurred,
+    // The WhatsApp path redacts faces server-side only (see redact-server.ts);
+    // number-plate redaction is browser-Report-only for now.
+    platesFound: 0,
     manualReviewRequired: false,
     bytes: 0,
     faceRegions: [],
+    plateRegions: [],
   };
 
   const detection: DetectionResult = {
