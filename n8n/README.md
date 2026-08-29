@@ -56,6 +56,12 @@ sandbox exists to prevent.
 **Before it runs:** replace both `PASTE_INBOUND_POLL_SECRET` placeholders, and
 the host if you are not on `namma.duckdns.org`.
 
+**Demoing it.** The rung is due three days after escalation, which cannot be
+waited out on stage. `npm run demo:ladder` puts one report into exactly the state
+the ladder waits for — escalated, four days ago, no RTI on file — so clicking
+**Execute Workflow** makes all five nodes run for real. Nothing is faked; only
+the clock is moved. Re-run it to rehearse again.
+
 Idempotent by construction: a report with an `rti` outbox row stops being a
 candidate, and `act` re-checks before sending. A retry after a timeout that
 actually succeeded will not file a second RTI — twice reads as harassment, not

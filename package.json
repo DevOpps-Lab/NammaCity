@@ -10,7 +10,8 @@
     "verify:whatsapp": "node --experimental-strip-types scripts/verify-whatsapp.mjs",
     "verify:guards": "npx tsx scripts/verify-guards.ts",
     "verify:rls": "node scripts/verify-rls.mjs",
-    "demo:whatsapp": "node scripts/demo-whatsapp.mjs"
+    "demo:whatsapp": "node scripts/demo-whatsapp.mjs",
+    "demo:ladder": "node scripts/demo-ladder.mjs"
   },
   "dependencies": {
     "@atproto/api": "^0.20.31",
