@@ -45,3 +45,8 @@ next-env.d.ts
 
 # Supabase CLI scratch state — records which project this machine is linked to
 supabase/.temp/
+
+# YOLO weights for the dashcam sidecar — copied onto the box by
+# deploy/setup-detector.sh, not carried in every clone (28 MB).
+detector/models/*.pt
+detector/models/*.onnx

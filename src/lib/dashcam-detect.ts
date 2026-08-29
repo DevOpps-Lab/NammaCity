@@ -410,3 +410,63 @@ export async function detectPotholes(
     return [];
   }
 }
+
+// ─────────────────────────────────────────────────────────── remote detector
+
+/**
+ * The optional server-side detector (detector/server.py, via
+ * /api/dashcam/detect).
+ *
+ * It exists because the two available models turned out to be COMPLEMENTARY
+ * rather than one being better. Benchmarked on three dashcam clips, full-frame
+ * detections were 9/0/3 for the in-browser `pothole_yolov8n` and 0/7/11 for the
+ * larger `best.pt`: ours wins decisively on phone-shot footage, theirs on the
+ * other two. Running both and unioning beats either, and 28 MB of weights is a
+ * reasonable thing to ask of a server and an unreasonable thing to ask of a
+ * phone on 4G.
+ *
+ * ALWAYS OPTIONAL. Every failure path returns null so the caller runs the local
+ * detector instead. A Dashcam tab that stops working because a Python service
+ * restarted would be worse than the one that existed before it.
+ */
+export async function detectPotholesRemote(
+  source: HTMLCanvasElement
+): Promise<DashcamDetection[] | null> {
+  if (!source.width || !source.height) return null;
+
+  try {
+    const blob = await new Promise<Blob | null>((resolve) =>
+      source.toBlob(resolve, "image/jpeg", 0.8)
+    );
+    if (!blob) return null;
+
+    const form = new FormData();
+    form.append("frame", blob, "frame.jpg");
+
+    const res = await fetch("/api/dashcam/detect", { method: "POST", body: form });
+    // 503 is the sidecar being down, which is expected and not an error worth
+    // shouting about — the caller falls back.
+    if (!res.ok) return null;
+
+    const body = (await res.json()) as { available?: boolean; detections?: DashcamDetection[] };
+    if (!body.available || !Array.isArray(body.detections)) return null;
+
+    // Boxes come back in source-image pixel space already, so unlike the local
+    // path there is no letterbox to undo.
+    return body.detections;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether the sidecar is up, so the UI can avoid offering a dead option. */
+export async function remoteDetectorAvailable(): Promise<{ available: boolean; models: string[] }> {
+  try {
+    const res = await fetch("/api/dashcam/detect");
+    if (!res.ok) return { available: false, models: [] };
+    const body = (await res.json()) as { available?: boolean; models?: string[] };
+    return { available: Boolean(body.available), models: body.models ?? [] };
+  } catch {
+    return { available: false, models: [] };
+  }
+}

@@ -1,0 +1,54 @@
+# CivicAgent pothole detection sidecar (FastAPI + ultralytics).
+#
+#   sudo cp deploy/civicagent-detector.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now civicagent-detector
+#   sudo journalctl -u civicagent-detector -f
+#
+# Optional by design. If this is stopped, the Dashcam tab falls back to the
+# in-browser ONNX detector it has always used — so a failure here degrades the
+# feature rather than breaking it.
+
+[Unit]
+Description=CivicAgent pothole detector (loopback inference sidecar)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=civicagent
+Group=civicagent
+WorkingDirectory=/opt/civicagent/detector
+
+# 4 vCPU on this box. Left at the default, ultralytics/torch will happily spawn
+# a thread per core per request and thrash when two frames arrive together;
+# capping it keeps latency predictable and leaves headroom for the Next server,
+# which is the process a citizen is actually waiting on.
+Environment=OMP_NUM_THREADS=3
+Environment=MKL_NUM_THREADS=3
+# Ultralytics otherwise phones home and tries to write a settings file.
+Environment=YOLO_OFFLINE=True
+Environment=MPLCONFIGDIR=/tmp/mpl
+
+ExecStart=/opt/civicagent/detector/venv/bin/python /opt/civicagent/detector/server.py
+
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=civicagent-detector
+
+# Model weights are read-only at runtime; nothing is written outside /tmp.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/civicagent/detector
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

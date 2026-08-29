@@ -34,6 +34,8 @@ import Icon from "./Icon";
 import {
   loadDetector,
   detectPotholes,
+  detectPotholesRemote,
+  remoteDetectorAvailable,
   CONF_THRESHOLD,
   CONF_MIN,
   CONF_MAX,
@@ -111,6 +113,31 @@ export default function DashcamTab({
   const [scanError, setScanError] = useState<string | null>(null);
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [sensitivity, setSensitivity] = useState(CONF_THRESHOLD);
+  /**
+   * The server-side ensemble, when the sidecar is running. Off unless it is
+   * both available and chosen: it uploads a JPEG per frame, which is a real
+   * cost on mobile data and not one to impose by default.
+   */
+  const [remoteAvailable, setRemoteAvailable] = useState(false);
+  const [useRemote, setUseRemote] = useState(false);
+  const [remoteModels, setRemoteModels] = useState<string[]>([]);
+  /** Set when a frame silently fell back, so the UI can stop claiming the ensemble. */
+  const [remoteFellBack, setRemoteFellBack] = useState(false);
+  const useRemoteRef = useRef(false);
+  useEffect(() => {
+    useRemoteRef.current = useRemote;
+  }, [useRemote]);
+  useEffect(() => {
+    let alive = true;
+    void remoteDetectorAvailable().then((r) => {
+      if (!alive) return;
+      setRemoteAvailable(r.available);
+      setRemoteModels(r.models);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -248,7 +275,17 @@ export default function DashcamTab({
 
       cctx.drawImage(video, 0, 0, clean.width, clean.height);
 
-      const detections = await detectPotholes(clean, { threshold: sensitivityRef.current });
+      // Remote first when asked for, local otherwise — and local ALSO when the
+      // sidecar returns null, which it does for every failure. A scan must not
+      // die because a Python service restarted mid-video.
+      let detections: DashcamDetection[] | null = null;
+      if (useRemoteRef.current) {
+        detections = await detectPotholesRemote(clean);
+        if (detections === null) setRemoteFellBack(true);
+      }
+      if (detections === null) {
+        detections = await detectPotholes(clean, { threshold: sensitivityRef.current });
+      }
       if (aborted()) return;
 
       // Draw the frame we just analysed, with its own boxes — never a previous
@@ -538,6 +575,36 @@ export default function DashcamTab({
           Takes effect on the next frame — adjust mid-scan, or Rescan to redo the clip.
         </span>
       </label>
+
+      {/* Only offered when the sidecar answers. An option that silently does
+          nothing is worse than no option. */}
+      {remoteAvailable && (
+        <label className="mt-3 flex items-start gap-2.5 rounded-xl border border-[var(--border)] p-3">
+          <input
+            type="checkbox"
+            checked={useRemote}
+            onChange={(e) => {
+              setUseRemote(e.target.checked);
+              setRemoteFellBack(false);
+            }}
+            className="mt-0.5 accent-[var(--accent)]"
+          />
+          <span className="text-[11px] leading-relaxed">
+            <span className="font-medium">Higher accuracy (server)</span>
+            <span className="mt-0.5 block text-[var(--text-faint)]">
+              Runs {remoteModels.length || 2} detection models and merges the results. The two
+              disagree usefully — one is better on phone footage, the other on wide dashcam
+              video. Uploads one image per frame, so it uses mobile data.
+            </span>
+            {remoteFellBack && (
+              <span className="mt-1 block text-[var(--warning)]">
+                The server didn&apos;t answer for at least one frame — those were scanned on
+                your device instead.
+              </span>
+            )}
+          </span>
+        </label>
+      )}
 
       {frames.length > 0 && (
         <div className="scroll-thin fade-in mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
