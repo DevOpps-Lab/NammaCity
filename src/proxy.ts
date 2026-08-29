@@ -107,13 +107,12 @@ export const config = {
      * Everything except static assets and image files. The service worker and
      * manifest are excluded so the PWA shell still installs while logged out.
      *
-     * `models/` is excluded for the same reason as `data/`: these are static
-     * model weights (blazeface for face redaction, YOLOv8n for the dashcam),
-     * not pages. Without it every weight fetch went through this proxy — which
-     * means a Supabase getUser() round-trip before a byte of the model moves,
-     * and a 307 to /login for anyone not signed in. Face redaction downloading
-     * an HTML login page instead of its weights fails in a way that looks like
-     * a model bug, which is exactly how long it took to spot.
+     * `models/` is excluded for the same reason as `data/`: it holds the static
+     * YOLOv8n weights the dashcam loads, not pages. Without it every weight
+     * fetch went through this proxy — a Supabase getUser() round-trip before a
+     * byte of the model moves, and a 307 to /login for anyone not signed in.
+     * (Face/plate redaction no longer needs a local model — detection is a
+     * Gemini call now — but the dashcam still does.)
      */
     "/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.webmanifest|data/|models/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],

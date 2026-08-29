@@ -32,9 +32,10 @@ const SCHEMA = {
     severity: { type: "STRING", enum: [...SEVERITY_VALUES] },
     confidence: { type: "NUMBER" },
     reason: { type: "STRING" },
-    // Face boxes ride along on the call we were already making. The WhatsApp
-    // intake has no browser to run blazeface in, so this is the only chance to
-    // find a face before the photo reaches an authority and a public feed.
+    // Face AND number-plate boxes ride along on the call we were already making.
+    // The browser Report path no longer runs blazeface, and the WhatsApp intake
+    // has no browser at all — so this one call is the only chance to find a face
+    // or a plate before the photo reaches an authority and a public feed.
     faces: {
       type: "ARRAY",
       items: {
@@ -48,8 +49,21 @@ const SCHEMA = {
         required: ["ymin", "xmin", "ymax", "xmax"],
       },
     },
+    plates: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          ymin: { type: "NUMBER" },
+          xmin: { type: "NUMBER" },
+          ymax: { type: "NUMBER" },
+          xmax: { type: "NUMBER" },
+        },
+        required: ["ymin", "xmin", "ymax", "xmax"],
+      },
+    },
   },
-  required: ["category", "severity", "confidence", "reason", "faces"],
+  required: ["category", "severity", "confidence", "reason", "faces", "plates"],
 };
 
 const SYSTEM = `You analyse photographs of civic defects reported by residents in Indian cities.
@@ -66,6 +80,10 @@ Return exactly:
                0-1000 as ymin, xmin, ymax, xmax. Empty array if there are none.
                Err towards including a box: a missed face is a privacy failure,
                an extra one only blurs some road.
+  plates     — a bounding box for EVERY vehicle registration / number plate,
+               whole or partial, at any angle or distance, same coordinate
+               format. Empty array if there are none. Same rule: over-include
+               rather than miss one.
 
 Calibration rules:
 - If the photo is dark, blurry, heavily cropped, or ambiguous, return confidence < 0.4.
@@ -93,6 +111,25 @@ export interface FaceBox {
   xmax: number;
 }
 
+/** Coerce Gemini's box array into clean FaceBoxes, dropping anything malformed. */
+function parseBoxes(raw: unknown): FaceBox[] {
+  if (!Array.isArray(raw)) return [];
+  return (raw as unknown[])
+    .map((f) => f as Record<string, unknown>)
+    .map((f) => ({
+      ymin: Number(f.ymin),
+      xmin: Number(f.xmin),
+      ymax: Number(f.ymax),
+      xmax: Number(f.xmax),
+    }))
+    .filter(
+      (b) =>
+        [b.ymin, b.xmin, b.ymax, b.xmax].every(Number.isFinite) &&
+        b.ymax > b.ymin &&
+        b.xmax > b.xmin
+    );
+}
+
 export type VisionResult =
   | {
       ok: true;
@@ -101,6 +138,7 @@ export type VisionResult =
       confidence: number;
       reason: string;
       faces: FaceBox[];
+      plates: FaceBox[];
     }
   | { ok: false; kind: "unconfigured" }
   | { ok: false; kind: "refused" }
@@ -174,22 +212,8 @@ export async function analyseImage(dataUrl: string): Promise<VisionResult> {
         ? (parsed.severity as LLMSeverity)
         : "moderate",
       reason: String(parsed.reason ?? "").slice(0, 120),
-      faces: Array.isArray(parsed.faces)
-        ? (parsed.faces as unknown[])
-            .map((f) => f as Record<string, unknown>)
-            .map((f) => ({
-              ymin: Number(f.ymin),
-              xmin: Number(f.xmin),
-              ymax: Number(f.ymax),
-              xmax: Number(f.xmax),
-            }))
-            .filter(
-              (b) =>
-                [b.ymin, b.xmin, b.ymax, b.xmax].every(Number.isFinite) &&
-                b.ymax > b.ymin &&
-                b.xmax > b.xmin
-            )
-        : [],
+      faces: parseBoxes(parsed.faces),
+      plates: parseBoxes(parsed.plates),
     };
   } catch (error) {
     return {

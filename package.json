@@ -16,8 +16,6 @@
     "@atproto/api": "^0.20.31",
     "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.110.7",
-    "@tensorflow-models/blazeface": "^0.1.0",
-    "@tensorflow/tfjs": "^4.22.0",
     "@turf/boolean-point-in-polygon": "^7.3.5",
     "@turf/helpers": "^7.3.5",
     "@types/mailparser": "^3.4.6",

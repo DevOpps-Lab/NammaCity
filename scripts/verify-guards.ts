@@ -9,6 +9,7 @@ import { evaluateAfterPhoto, VERIFY_SCENARIOS } from "../src/lib/verification";
 import { classifyReply, applyReply, DEMO_REPLIES } from "../src/lib/correspondence";
 import { findDuplicates, haversineMetres } from "../src/lib/dedup";
 import { verdictOf } from "../src/lib/verify-vision";
+import { redactionGate } from "../src/lib/imaging";
 import type { Report } from "../src/lib/types";
 
 let failures = 0;
@@ -221,6 +222,25 @@ check(
 check(
   "a done-claim alone never reaches verified_fixed",
   applyReply(fakeReport, classifyReply({ from: "x", subject: "done", body: "work completed" }, fakeReport)).status !== "verified_fixed"
+);
+
+// -----------------------------------------------------------------------------
+// REDACTION GATE. Detection is a Gemini call now; if it could not run the Report
+// tab must not let the photo be filed until the user confirms they redacted it.
+console.log("\n=== REDACTION GATE ===");
+
+check(
+  "detection failed + not confirmed -> blocked",
+  redactionGate({ manualReviewRequired: true }, false) === false
+);
+check(
+  "detection failed + user confirmed -> allowed",
+  redactionGate({ manualReviewRequired: true }, true) === true
+);
+check(
+  "detection ran -> allowed regardless of the checkbox",
+  redactionGate({ manualReviewRequired: false }, false) === true &&
+    redactionGate({ manualReviewRequired: false }, true) === true
 );
 
 console.log(

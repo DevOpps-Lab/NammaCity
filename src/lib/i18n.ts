@@ -13,11 +13,11 @@ const STRINGS = {
   reportIssue: { en: "Report an issue", ta: "சிக்கலைப் பதிவு செய்" },
   takePhoto: { en: "Take a photo", ta: "படம் எடுக்கவும்" },
   photoHint: {
-    en: "Faces and plates are blurred on your device before upload",
-    ta: "பதிவேற்றும் முன் முகங்கள் உங்கள் சாதனத்திலேயே மறைக்கப்படும்",
+    en: "Faces and number plates are found and covered before you file",
+    ta: "பதிவு செய்யும் முன் முகங்களும் வாகன எண் தகடுகளும் மறைக்கப்படும்",
   },
   processing: { en: "Redacting and analysing…", ta: "மறைத்து ஆய்வு செய்கிறது…" },
-  tapToBlur: { en: "Tap anything to blur it", ta: "மறைக்க தட்டவும்" },
+  tapToBlur: { en: "Tap anything to cover it", ta: "மறைக்க தட்டவும்" },
   manualReview: {
     en: "Please tap any faces or number plates yourself before submitting.",
     ta: "சமர்ப்பிக்கும் முன் முகங்களை நீங்களே தட்டி மறைக்கவும்.",

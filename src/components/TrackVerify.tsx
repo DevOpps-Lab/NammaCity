@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { processImage } from "@/lib/imaging";
+import { rasterizeForDetection } from "@/lib/imaging";
 import Icon from "./Icon";
 
 /**
@@ -16,12 +16,11 @@ import Icon from "./Icon";
  *     identity, so here the machine check is the only way through. The server
  *     enforces this — this component just explains it.
  *
- *  2. The photo IS redacted on-device here, through the same `processImage`
- *     the app uses. The intake photo that arrived over WhatsApp could not be
- *     (a Twilio media URL reaches the server already), which is what the notice
- *     further up this page is about. TF.js is dynamically imported inside
- *     `detectFaces`, so the cost lands when a photo is picked rather than on
- *     first paint — which matters on a page opened from a chat message.
+ *  2. Redaction is SERVER-SIDE. This page is public, so it cannot reach the
+ *     auth-gated detection call; it sends a downscaled, EXIF-stripped frame and
+ *     `/api/track/verify` detects + pixelates faces and number plates before the
+ *     photo is stored (the same path the WhatsApp intake uses). The preview is
+ *     hidden until the server responds so the un-redacted frame is never shown.
  */
 
 interface Outcome {
@@ -37,10 +36,8 @@ export default function TrackVerify({ token }: { token: string }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState<"redacting" | "checking" | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"preparing" | "checking" | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
-  const [facesBlurred, setFacesBlurred] = useState(0);
 
   const pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -49,17 +46,15 @@ export default function TrackVerify({ token }: { token: string }) {
     if (!file) return;
 
     setOutcome(null);
-    setBusy("redacting");
+    setBusy("preparing");
     try {
-      const image = await processImage(file, []);
-      setPreview(image.dataUrl);
-      setFacesBlurred(image.facesFound);
+      const frame = await rasterizeForDetection(file);
       setBusy("checking");
 
       const res = await fetch("/api/track/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, afterDataUrl: image.dataUrl }),
+        body: JSON.stringify({ token, afterDataUrl: frame.dataUrl }),
       });
       const body = await res.json().catch(() => null);
 
@@ -125,27 +120,18 @@ export default function TrackVerify({ token }: { token: string }) {
         </button>
       </div>
 
-      {preview && (
-        /* eslint-disable-next-line @next/next/no-img-element */
-        <img
-          src={preview}
-          alt="Your after-photo"
-          className="mt-3 max-h-56 w-full rounded-xl bg-[var(--surface)] object-contain"
-        />
-      )}
-
       {busy && (
         <p className="mt-3 text-[12px] font-medium text-[var(--text-dim)]">
-          {busy === "redacting"
-            ? "Redacting faces on your device…"
-            : "Comparing with the original photo…"}
+          {busy === "preparing"
+            ? "Preparing your photo…"
+            : "Checking the photo and comparing with the original…"}
         </p>
       )}
 
-      {!busy && preview && facesBlurred > 0 && (
+      {!busy && !outcome && (
         <p className="mt-2 text-[11px] text-[var(--text-dim)]">
-          {facesBlurred} {facesBlurred === 1 ? "face" : "faces"} blurred on your device before
-          upload.
+          Faces and number plates are covered on our server before the photo is
+          stored or shown.
         </p>
       )}
 
@@ -192,7 +178,7 @@ export default function TrackVerify({ token }: { token: string }) {
             style={{ background: "var(--brand-grad)" }}
           >
             <Icon name="camera" size={16} />
-            {preview ? "Try another photo" : "Take or choose a photo"}
+            {outcome ? "Try another photo" : "Take or choose a photo"}
           </button>
         </>
       )}
