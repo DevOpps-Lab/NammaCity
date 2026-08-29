@@ -3,7 +3,7 @@ import AuthShell from "@/components/AuthShell";
 import AuthForm from "@/components/AuthForm";
 
 export const metadata: Metadata = {
-  title: "Sign in — CivicAgent",
+  title: "Sign in — NammaCity",
 };
 
 export default async function LoginPage({

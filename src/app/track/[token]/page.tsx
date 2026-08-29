@@ -38,7 +38,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Track your report — CivicAgent",
+  title: "Track your report — NammaCity",
   robots: { index: false, follow: false },
 };
 
@@ -88,7 +88,7 @@ export default async function TrackPage({
       <div className="mx-auto w-full max-w-lg">
         <header className="mb-5 flex items-center gap-2.5">
           <span
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-white"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[var(--on-accent)]"
             style={{ background: "var(--brand-grad)" }}
           >
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
@@ -96,7 +96,7 @@ export default async function TrackPage({
             </svg>
           </span>
           <div>
-            <p className="text-[15px] font-bold leading-tight tracking-tight">CivicAgent</p>
+            <p className="text-[15px] font-bold leading-tight tracking-tight">NammaCity</p>
             <p className="text-[11px] text-[var(--text-dim)]">Public report tracking</p>
           </div>
         </header>
@@ -126,7 +126,7 @@ export default async function TrackPage({
                 </p>
               </div>
               <span
-                className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold text-white"
+                className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold text-[var(--on-accent)]"
                 style={{ background: style.color }}
               >
                 {style.label}

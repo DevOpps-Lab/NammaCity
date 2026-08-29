@@ -41,7 +41,7 @@ export default function TabBar({
         aria-label="Main"
         className="pb-safe px-safe absolute bottom-0 inset-x-0 z-[var(--z-panel)] shrink-0 lg:hidden p-4 pointer-events-none"
       >
-        <ul className="flex overflow-hidden rounded-2xl border border-[var(--border)] bg-white/75 backdrop-blur-xl shadow-lg pointer-events-auto">
+        <ul className="flex overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)]/85 backdrop-blur-xl shadow-lg pointer-events-auto">
           {TABS.map((t) => {
             const on = t.key === active;
             return (
@@ -50,7 +50,7 @@ export default function TabBar({
                   onClick={() => onChange(t.key)}
                   aria-current={on ? "page" : undefined}
                   className={`press active:scale-95 relative flex h-14 w-full flex-col items-center justify-center gap-0.5 transition-all duration-200 ${
-                    on ? "text-[var(--accent)]" : "text-slate-500 hover:text-slate-800"
+                    on ? "text-[var(--accent)]" : "text-[var(--text-dim)] hover:text-[var(--text)]"
                   }`}
                 >
                   <span className="relative">
@@ -109,7 +109,7 @@ export default function TabBar({
 
 function Dot({ count }: { count: number }) {
   return (
-    <span className="absolute -right-2 -top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--danger)] px-1 text-[9px] font-bold tabular-nums text-white">
+    <span className="absolute -right-2 -top-1.5 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--danger)] px-1 text-[9px] font-bold tabular-nums text-[var(--on-accent)]">
       {count > 99 ? "99+" : count}
     </span>
   );

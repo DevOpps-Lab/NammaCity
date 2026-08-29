@@ -62,7 +62,7 @@ export default function AuthShell({
             style={{ animationDelay: "160ms" }}
           >
             Indian civic systems let the accused department close its own ticket.
-            CivicAgent makes closure verifiable by the citizen instead — and
+            NammaCity makes closure verifiable by the citizen instead — and
             attaches consequence to silence.
           </p>
         </div>
@@ -156,7 +156,7 @@ function Wordmark() {
         </svg>
       </span>
       <span className="text-[17px] font-bold tracking-tight text-[var(--text)]">
-        CivicAgent
+        NammaCity
       </span>
     </div>
   );

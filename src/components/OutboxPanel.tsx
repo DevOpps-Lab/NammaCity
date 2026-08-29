@@ -11,10 +11,11 @@ const KIND_LABEL: Record<OutboxItem["kind"], string> = {
   rti: "RTI request",
 };
 
-// 600/700-level: these are used as label text on a pale chip, where the
-// original 400-level values sat around 2:1 on white.
+// Pitched bright, not 600/700-level: these are label text on a dark chip now,
+// so the dark tones that were needed against a pale chip invert the problem and
+// sit near 2:1 against the surface.
 const KIND_COLOR: Record<OutboxItem["kind"], string> = {
-  complaint: "#0369a1",
+  complaint: "#5b9cf0",
   reply: "var(--violet)",
   post: "var(--danger)",
   rti: "var(--warning)",
@@ -121,7 +122,7 @@ export default function OutboxPanel({
                       <dd className="font-mono">
                         {it.intendedTo}
                         {!it.recipientVerified && (
-                          <span className="ml-1.5 rounded bg-amber-500/20 px-1 py-0.5 text-[9px] font-semibold text-amber-700">
+                          <span className="ml-1.5 rounded bg-[var(--warning)]/20 px-1 py-0.5 text-[9px] font-semibold text-[var(--warning)]">
                             UNVERIFIED
                           </span>
                         )}
@@ -129,7 +130,7 @@ export default function OutboxPanel({
                     </div>
                     <div className="flex gap-2">
                       <dt className="w-24 shrink-0 text-[var(--text-dim)]">Actually sent</dt>
-                      <dd className="font-mono text-emerald-700">{it.actuallyTo}</dd>
+                      <dd className="font-mono text-[var(--success)]">{it.actuallyTo}</dd>
                     </div>
                   </dl>
                   <pre className="max-h-72 overflow-y-auto scroll-thin whitespace-pre-wrap rounded-lg bg-[var(--surface-2)] p-3 font-mono text-[10px] leading-relaxed text-[var(--text)]">

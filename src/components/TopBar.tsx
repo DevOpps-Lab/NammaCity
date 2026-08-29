@@ -47,21 +47,24 @@ export default function TopBar({
   return (
     // pt-safe keeps the bar clear of the Dynamic Island while the surface
     // colour still fills the notch area, so there's no seam above the header.
-    <header className="pt-safe px-safe relative z-[var(--z-overlay)] shrink-0 border-b border-white/20 bg-white/80 shadow-[0_4px_30px_rgba(0,0,0,0.05)] backdrop-blur-xl">
+    <header className="pt-safe px-safe relative z-[var(--z-overlay)] shrink-0 border-b border-[var(--border)] bg-[var(--surface)]/85 shadow-[0_4px_30px_rgba(0,0,0,0.05)] backdrop-blur-xl">
       <div className="flex h-14 items-center gap-1.5 px-2 sm:gap-2 sm:px-4">
         {/* Brand */}
         <div className="flex shrink-0 items-center gap-2">
           <span
-            className="grid h-8 w-8 place-items-center rounded-xl text-white shadow-[var(--shadow-1)]"
+            className="grid h-8 w-8 place-items-center rounded-xl text-[var(--on-accent)] shadow-[var(--shadow-1)]"
             style={{ background: "var(--brand-grad)" }}
           >
             <Icon name="shield" size={17} />
           </span>
           <div className="hidden sm:block">
             <p className="text-[13px] font-semibold leading-none tracking-tight">
-              CivicAgent
+              NammaCity
             </p>
-            <p className="mt-0.5 text-[10px] leading-none text-[var(--text-faint)]">
+            {/* 10px was below the 12px floor this product now holds itself to —
+                a micro-label is exactly where contrast and size can least
+                afford to be borderline. */}
+            <p className="mt-1 text-[12px] leading-none text-[var(--text-faint)]">
               Chennai
             </p>
           </div>
@@ -188,7 +191,7 @@ function IconBtn({
     >
       {children}
       {badge !== undefined && badge > 0 && (
-        <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--accent)] px-1 text-[9px] font-bold text-white tabular-nums">
+        <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--accent)] px-1 text-[9px] font-bold text-[var(--on-accent)] tabular-nums">
           {badge > 99 ? "99+" : badge}
         </span>
       )}

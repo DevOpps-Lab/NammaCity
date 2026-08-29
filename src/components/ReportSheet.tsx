@@ -178,7 +178,7 @@ export default function ReportSheet({
             </svg>
             <div className="min-w-0">
               <p
-                className={`text-sm font-semibold ${overdue ? "text-red-700" : "text-emerald-700"}`}
+                className={`text-sm font-semibold ${overdue ? "text-[var(--danger)]" : "text-[var(--success)]"}`}
               >
                 {formatRemaining(report.slaDeadline, t)}
               </p>
@@ -192,11 +192,11 @@ export default function ReportSheet({
 
         {/* --- The claimed-vs-verified distinction -------------------------- */}
         {report.status === "claims_done" && canVerify && (
-          <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
-            <p className="text-xs font-semibold text-amber-700">
+          <div className="mb-4 rounded-xl border border-[var(--warning)]/30 bg-[var(--warning)]/10 p-3">
+            <p className="text-xs font-semibold text-[var(--warning)]">
               The authority says this is fixed. Nobody has checked.
             </p>
-            <p className="mt-1 text-[11px] leading-snug text-amber-900/70">
+            <p className="mt-1 text-[11px] leading-snug text-[var(--warning)]">
               We do not close on an authority&apos;s word. Chennai has documented cases of
               complaints closed using photos from a different location.
             </p>
@@ -261,10 +261,10 @@ export default function ReportSheet({
           <div className="mb-3 space-y-2">
             <button
               onClick={() => onFileRti(report)}
-              className="w-full rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs font-semibold text-amber-700 hover:bg-amber-500/20"
+              className="w-full rounded-lg border border-[var(--warning)]/40 bg-[var(--warning)]/10 px-3 py-2.5 text-xs font-semibold text-[var(--warning)] hover:bg-[var(--warning)]/20"
             >
               Draft RTI status request
-              <span className="ml-1 font-normal text-amber-800/70">
+              <span className="ml-1 font-normal text-[var(--warning)]">
                 · RTI Act s.4(1)(b)
               </span>
             </button>
@@ -280,11 +280,11 @@ export default function ReportSheet({
         )}
 
         {report.status === "escalated" && (
-          <div className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 p-2.5">
-            <p className="text-[11px] font-semibold text-red-700">
+          <div className="mb-3 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger)]/10 p-2.5">
+            <p className="text-[11px] font-semibold text-[var(--danger)]">
               Published to the public ledger
             </p>
-            <p className="mt-0.5 text-[10px] text-red-900/70">
+            <p className="mt-0.5 text-[10px] text-[var(--danger)]">
               Facts only · institution tagged · no named officer
             </p>
           </div>
@@ -320,7 +320,7 @@ export default function ReportSheet({
         )}
 
         {closed && (
-          <p className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2.5 text-center text-xs text-emerald-700">
+          <p className="mt-3 rounded-lg border border-[var(--success)]/30 bg-[var(--success)]/10 p-2.5 text-center text-xs text-[var(--success)]">
             Verified fixed by a citizen. This is the only way a report closes here.
           </p>
         )}
@@ -369,7 +369,7 @@ export default function ReportSheet({
                       </span>
                     )}
                     {r.label.includes("Claims") && (
-                      <span className="ml-1.5 rounded bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">
+                      <span className="ml-1.5 rounded bg-[var(--warning)]/20 px-1.5 py-0.5 text-[9px] font-semibold text-[var(--warning)]">
                         won&apos;t close it
                       </span>
                     )}

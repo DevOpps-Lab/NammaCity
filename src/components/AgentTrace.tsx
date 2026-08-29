@@ -14,7 +14,7 @@ const AGENT_COLOR: Record<TraceLine["agent"], string> = {
   TRIAGE: "var(--warning)",
   ROUTING: "var(--accent)",
   AUTHORITY: "var(--violet)",
-  SLA: "#a16207",
+  SLA: "#3fb6d8",
   FILING: "var(--success)",
   GUARD: "var(--danger)",
 };

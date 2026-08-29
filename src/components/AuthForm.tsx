@@ -15,7 +15,7 @@ function SubmitButton({ label }: { label: string }) {
       className="mt-1 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[var(--accent)] text-[14px] font-semibold text-[var(--on-accent)] transition active:scale-[0.99] disabled:opacity-60"
     >
       {pending && (
-        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+        <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--on-accent)]/40 border-t-[var(--on-accent)]" />
       )}
       {pending ? "Working…" : label}
     </button>

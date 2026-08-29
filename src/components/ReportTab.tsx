@@ -317,7 +317,7 @@ export default function ReportTab({
           <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-[var(--accent)]/10 to-transparent" />
           
           <span
-            className="breathe relative grid h-24 w-24 place-items-center rounded-full text-white shadow-[0_0_40px_rgba(var(--accent-rgb),0.4)]"
+            className="breathe relative grid h-24 w-24 place-items-center rounded-full text-[var(--on-accent)] shadow-[0_0_40px_rgba(var(--accent-rgb),0.4)]"
             style={{ background: "var(--brand-grad)" }}
           >
             <Icon name="camera" size={36} />
@@ -618,7 +618,7 @@ export default function ReportTab({
             className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] text-[14px] font-bold text-[var(--on-accent)] transition active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-[var(--surface-3)] disabled:text-[var(--text-faint)]"
           >
             {busy ? (
-              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--on-accent)]/40 border-t-[var(--on-accent)]" />
             ) : (
               <Icon name="send" size={17} />
             )}

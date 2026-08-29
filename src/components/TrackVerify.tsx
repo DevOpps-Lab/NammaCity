@@ -91,7 +91,7 @@ export default function TrackVerify({ token }: { token: string }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-[13px] font-semibold text-white"
+        className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-[13px] font-semibold text-[var(--on-accent)]"
         style={{ background: "var(--brand-grad)" }}
       >
         <Icon name="camera" size={16} />
@@ -139,7 +139,7 @@ export default function TrackVerify({ token }: { token: string }) {
         <div
           className="mt-3 rounded-xl border px-3 py-2.5"
           style={{
-            borderColor: outcome.closed ? "var(--success, #15803d)" : "var(--border)",
+            borderColor: outcome.closed ? "var(--success, #4fae7c)" : "var(--border)",
           }}
         >
           <p className="flex items-center gap-1.5 text-[12px] font-semibold">
@@ -174,7 +174,7 @@ export default function TrackVerify({ token }: { token: string }) {
             type="button"
             disabled={busy !== null}
             onClick={() => fileRef.current?.click()}
-            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-[13px] font-semibold text-white disabled:opacity-50"
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-[13px] font-semibold text-[var(--on-accent)] disabled:opacity-50"
             style={{ background: "var(--brand-grad)" }}
           >
             <Icon name="camera" size={16} />

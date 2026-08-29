@@ -57,15 +57,15 @@ export default function EscalationPanel({
 
         {/* --- Guardrail refusals ------------------------------------------ */}
         {post.guard.blocked && (
-          <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3">
-            <p className="text-xs font-semibold text-red-700">
+          <div className="mt-3 rounded-xl border border-[var(--danger)]/30 bg-[var(--danger)]/10 p-3">
+            <p className="text-xs font-semibold text-[var(--danger)]">
               Removed {post.guard.violations.length} unsafe element
               {post.guard.violations.length > 1 ? "s" : ""}
             </p>
             <ul className="mt-2 space-y-1.5">
               {post.guard.violations.map((v, i) => (
                 <li key={i} className="text-[11px] leading-snug">
-                  <span className="rounded bg-red-500/20 px-1.5 py-0.5 font-mono text-red-700">
+                  <span className="rounded bg-[var(--danger)]/20 px-1.5 py-0.5 font-mono text-[var(--danger)]">
                     {v.term}
                   </span>
                   <span className="ml-1.5 text-[var(--text-dim)]">{v.reason}</span>
@@ -118,7 +118,7 @@ export default function EscalationPanel({
               );
               setTimeout(onClose, 900);
             }}
-            className="flex-1 rounded-lg bg-[var(--accent)] px-3 py-2.5 text-xs font-semibold text-[var(--on-accent)] hover:bg-[var(--accent-hover)] disabled:bg-emerald-500"
+            className="flex-1 rounded-lg bg-[var(--accent)] px-3 py-2.5 text-xs font-semibold text-[var(--on-accent)] hover:bg-[var(--accent-hover)] disabled:bg-[var(--success)]"
           >
             {published ? "Published ✓" : "Approve & publish"}
           </button>

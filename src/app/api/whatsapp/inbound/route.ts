@@ -75,7 +75,7 @@ export async function POST(request: Request) {
   if (!twilioConfigured() || !adminConfigured()) {
     console.warn("[whatsapp] TWILIO_ACCOUNT_SID or SUPABASE_SERVICE_ROLE_KEY missing");
     return twiml(
-      "CivicAgent's WhatsApp intake isn't fully configured yet. Please try the app instead."
+      "NammaCity's WhatsApp intake isn't fully configured yet. Please try the app instead."
     );
   }
 

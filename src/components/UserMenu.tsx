@@ -105,7 +105,7 @@ export default function UserMenu({
                       setOpen(false);
                       setConfirming(false);
                     }}
-                    className="flex-1 rounded-md bg-[var(--danger)] px-2 py-1.5 text-[11px] font-semibold text-white"
+                    className="flex-1 rounded-md bg-[var(--danger)] px-2 py-1.5 text-[11px] font-semibold text-[var(--on-accent)]"
                   >
                     Reset
                   </button>

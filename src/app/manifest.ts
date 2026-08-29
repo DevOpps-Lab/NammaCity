@@ -7,14 +7,17 @@ import type { MetadataRoute } from "next";
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "CivicAgent — civic issue accountability ledger",
-    short_name: "CivicAgent",
+    name: "NammaCity — civic issue accountability ledger",
+    short_name: "NammaCity",
     description:
       "Report a civic defect once. Agents file it against every responsible agency, track it against the authority's own published SLA, and escalate publicly if it is missed. Only a citizen can close it.",
     start_url: "/",
     display: "standalone",
-    background_color: "#ffffff",
-    theme_color: "#ffffff",
+    // Both match --bg. These drive the installed app's splash screen and window
+    // chrome, so leaving them white flashes a white card before a near-black app
+    // on every cold launch.
+    background_color: "#0d0e10",
+    theme_color: "#0d0e10",
     orientation: "portrait",
     categories: ["utilities", "government"],
     icons: [
