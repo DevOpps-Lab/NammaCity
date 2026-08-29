@@ -130,7 +130,7 @@ export default function TrackVerify({ token }: { token: string }) {
         <img
           src={preview}
           alt="Your after-photo"
-          className="mt-3 max-h-56 w-full rounded-xl object-cover"
+          className="mt-3 max-h-56 w-full rounded-xl bg-[var(--surface)] object-contain"
         />
       )}
 

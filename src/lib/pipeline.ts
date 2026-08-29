@@ -124,6 +124,12 @@ export interface ConfirmedCapture {
   routing: RoutingResult;
   authorities: AuthorityRecord[];
   resolveMs: number;
+  /**
+   * Which intake path this came through. Defaults to the app. It reaches the
+   * complaint email, where the difference is not cosmetic: an app photo was
+   * redacted on the device, a WhatsApp photo was not, and the body says so.
+   */
+  source?: "app" | "whatsapp";
 }
 
 /**
@@ -208,6 +214,7 @@ export async function fileReport(
     // formatPlace, not an inline template: this used to guard on zoneName and
     // interpolate ward, printing "Ward undefined, <area>" for every Tier 2 fix.
     place: formatPlace(routing, fix),
+    source: c.source ?? "app",
     category,
     categorySource: c.categorySource,
     categoryConfidence: c.categoryConfidence,

@@ -122,7 +122,24 @@ export async function detectFacesWithTFJS(
     const tf = await import("@tensorflow/tfjs");
     const backend = tf.getBackend();
 
-    const regions: BlurRegion[] = predictions.map((p) => {
+    const regions: BlurRegion[] = predictions
+      // Blazeface scores every candidate, and this used to blur all of them
+      // regardless — so a pothole, a manhole rim or a patch of gravel could be
+      // pixelated as a "face" on a photo containing no people at all. The
+      // threshold is deliberately low: a missed face is a privacy failure and a
+      // spurious blur is only cosmetic, so this trims obvious noise rather than
+      // trying to be strict.
+      .filter((p) => {
+        const raw = Array.isArray(p.probability)
+          ? p.probability[0]
+          : typeof p.probability === "number"
+            ? p.probability
+            : p.probability?.arraySync?.()?.[0];
+        // A build that reports no score at all must still blur — absence of a
+        // score is not evidence that it isn't a face.
+        return typeof raw !== "number" || raw >= 0.6;
+      })
+      .map((p) => {
       // blazeface topLeft / bottomRight are [x, y] tensors or plain arrays.
       const tl = Array.isArray(p.topLeft) ? p.topLeft : p.topLeft.arraySync();
       const br = Array.isArray(p.bottomRight) ? p.bottomRight : p.bottomRight.arraySync();

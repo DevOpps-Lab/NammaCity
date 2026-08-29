@@ -69,8 +69,15 @@ export function composeComplaint(
     w.ambiguityNote
       ? `Note on jurisdiction: ${w.ambiguityNote}\n`
       : ``,
-    `A geotagged photograph is attached. Faces and identifying details were`,
-    `redacted on the reporting device before transmission.`,
+    // Provenance, stated accurately per intake path. The app redacts faces on
+    // the device before anything is uploaded; a photo messaged over WhatsApp
+    // reaches our server unmodified and can only have its EXIF stripped there.
+    // Claiming the stronger guarantee for both would be a false assurance made
+    // to a government body about a photograph of a public place — precisely the
+    // kind of confident fiction this product exists to refuse.
+    report.source === "whatsapp"
+      ? `A geotagged photograph is attached. It was submitted over WhatsApp: location metadata was stripped on our server, but it was NOT redacted on the sender's device, so faces in it were not automatically blurred.`
+      : `A geotagged photograph is attached. Faces and identifying details were redacted on the reporting device before transmission.`,
     ``,
     `This complaint is tracked publicly. It will be marked resolved only when a`,
     `resident confirms the repair with a photograph from the same location — not`,

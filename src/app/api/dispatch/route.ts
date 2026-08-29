@@ -8,33 +8,7 @@ import {
 } from "@/lib/email/gmail";
 import { complaintTextToHtml } from "@/lib/email/render";
 import { now } from "@/lib/demoClock";
-
-/** Fetch the redacted photo as an attachment, from a storage URL or data URL. */
-async function fetchPhoto(
-  photoUrl: string | null | undefined,
-  reportId: string
-): Promise<MailAttachment | null> {
-  if (!photoUrl) return null;
-  const cid = "reportphoto";
-  try {
-    if (photoUrl.startsWith("data:")) {
-      const m = /^data:(image\/[a-z]+);base64,(.+)$/i.exec(photoUrl);
-      if (!m) return null;
-      return { filename: `${reportId}.jpg`, content: Buffer.from(m[2], "base64"), contentType: m[1], cid };
-    }
-    const res = await fetch(photoUrl);
-    if (!res.ok) return null;
-    const content = Buffer.from(await res.arrayBuffer());
-    return {
-      filename: `${reportId}.jpg`,
-      content,
-      contentType: res.headers.get("content-type") ?? "image/jpeg",
-      cid,
-    };
-  } catch {
-    return null;
-  }
-}
+import { fetchReportPhoto } from "@/lib/email/photo";
 
 /**
  * OUTBOUND DISPATCH — sends the composed complaint(s) for a report over Gmail.
@@ -101,7 +75,7 @@ export async function POST(req: Request) {
     .eq("id", reportId)
     .limit(1)
     .maybeSingle();
-  const photo = await fetchPhoto(reportRow?.photo_url, reportId);
+  const photo = await fetchReportPhoto(reportRow?.photo_url, reportId);
 
   let sent = 0;
   for (const row of rows) {

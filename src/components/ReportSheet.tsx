@@ -147,7 +147,7 @@ export default function ReportSheet({
                 <img
                   src={report.photoUrl}
                   alt="Reported issue"
-                  className="h-32 w-full rounded-lg object-cover shadow-[var(--shadow-1)]"
+                  className="h-32 w-full rounded-lg bg-[var(--surface)] object-contain shadow-[var(--shadow-1)]"
                 />
                 <figcaption className="mt-1.5 flex items-center justify-between text-[9px] uppercase tracking-wider text-[var(--text-dim)]">
                   <span>Before</span>

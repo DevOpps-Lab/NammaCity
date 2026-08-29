@@ -328,7 +328,7 @@ export default function ReportTab({
             src={image.dataUrl}
             alt="Your report"
             onClick={onTapImage}
-            className="max-h-[38vh] w-full cursor-crosshair object-cover"
+            className="max-h-[38vh] w-full cursor-crosshair bg-[var(--surface)] object-contain"
           />
           <span className="absolute bottom-2 left-2 rounded bg-black/70 px-2 py-1 text-[10px] text-white">
             {reblurring ? "Blurring…" : t(lang, "tapToBlur")}
