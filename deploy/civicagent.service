@@ -1,0 +1,58 @@
+# CivicAgent — Next.js production server.
+#
+#   sudo cp deploy/civicagent.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now civicagent
+#   sudo journalctl -u civicagent -f
+#
+# systemd rather than PM2: one less dependency to install, and it starts on boot
+# without a separate startup hook. `Restart=always` matters more here than it
+# looks — this process is what a citizen's WhatsApp webhook arrives at, and a
+# crash that stays down loses reports silently.
+
+[Unit]
+Description=CivicAgent (Next.js)
+Documentation=https://github.com/DevOpps-Lab/NammaCity
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=civicagent
+Group=civicagent
+WorkingDirectory=/opt/civicagent
+
+# Next reads .env.local from the working directory itself, so secrets are NOT
+# listed here — keeping them out of the unit file means `systemctl cat` and the
+# journal never expose them.
+Environment=NODE_ENV=production
+
+# Bound to loopback on purpose. Caddy terminates TLS and proxies to it; nothing
+# outside the box can reach the Next server directly, even if the firewall were
+# misconfigured.
+ExecStart=/usr/bin/npm run start -- -H 127.0.0.1 -p 3000
+
+Restart=always
+RestartSec=5
+# A crash loop should be loud, not endless.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=civicagent
+
+# --- hardening -------------------------------------------------------------
+# The app writes nothing to disk at runtime: photos go to Supabase Storage and
+# the only file it reads is the ward GeoJSON inside its own directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/civicagent/.next
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,46 @@
+# CivicAgent reverse proxy.
+#
+#   sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
+#   sudo sed -i 's/civicagent.example.com/your.real.domain/' /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+#
+# Point the DNS A record at this instance BEFORE reloading: Caddy requests a
+# certificate on start, and the request fails if the name does not yet resolve
+# here.
+#
+# TLS is not optional for this app. Twilio refuses to POST a webhook to plain
+# http or to a bare IP, so without a certificate the WhatsApp intake simply
+# never fires.
+
+civicagent.example.com {
+	reverse_proxy 127.0.0.1:3000
+
+	encode zstd gzip
+
+	# The app sets its own X-Frame-Options / X-Content-Type-Options / Referrer-Policy
+	# in next.config.ts, so they are not duplicated here. HSTS is Caddy's to add.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+
+	# The self-hosted blazeface weights and the YOLOv8n model are immutable and
+	# fingerprint-free, so give them a long cache. Everything else is left to
+	# Next's own cache headers.
+	@models path /models/*
+	header @models Cache-Control "public, max-age=604800, immutable"
+
+	log {
+		output file /var/log/caddy/civicagent.log
+		format json
+	}
+}
+
+# NOTE on the Twilio signature.
+#
+# Twilio signs the exact URL configured in its console. Behind a proxy the
+# request Next sees is http://127.0.0.1:3000/..., which will not match, and
+# `verifyTwilioSignature` fails closed — every webhook returns 403.
+#
+# Caddy does set X-Forwarded-Proto and X-Forwarded-Host, which signedUrlFor()
+# reads, but do not rely on that: set TWILIO_WEBHOOK_URL in .env.local to the
+# full public URL. This exact failure has already cost an afternoon once.
