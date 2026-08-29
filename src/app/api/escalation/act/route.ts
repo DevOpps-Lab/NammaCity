@@ -3,7 +3,7 @@ import { adminConfigured, createAdminClient } from "@/lib/supabase/admin";
 import { authorisedScheduler } from "@/lib/api-auth";
 import { composeRti } from "@/lib/outbox";
 import { sendMail, gmailConfigured, normalizeMessageId } from "@/lib/email/gmail";
-import { complaintTextToHtml } from "@/lib/email/render";
+import { rtiTextToHtml } from "@/lib/email/render";
 import * as db from "@/lib/db";
 import { now } from "@/lib/demoClock";
 import type { AuthorityRecord } from "@/lib/authorities";
@@ -91,7 +91,7 @@ export async function POST(req: Request) {
         to: sink,
         subject: item.subject,
         text: item.body,
-        html: complaintTextToHtml(item.subject, item.body),
+        html: rtiTextToHtml(item.subject, item.body),
       });
       messageId = normalizeMessageId(res.messageId);
       delivered = true;
