@@ -86,12 +86,28 @@ export async function pixelateFaces(
 
       // Downsample then blow back up with nearest-neighbour: a mosaic, which is
       // irreversible, rather than a blur, which can be partially undone.
+      //
+      // TWO PIPELINES, NOT ONE CHAIN. sharp is declarative — a pipeline holds a
+      // single resize operation, so `.resize(small).resize(big)` does not mean
+      // "shrink then grow", it means the second call REPLACES the first and the
+      // tile comes back at its original size, unmodified. That silently turned
+      // this whole function into a no-op: it reported the right number of faces
+      // blurred, threw nothing, and returned an image that differed only by
+      // JPEG re-encode noise.
       const smallW = Math.max(1, Math.round(width / MOSAIC_BLOCKS));
       const smallH = Math.max(1, Math.round(height / MOSAIC_BLOCKS));
-      const tile = await sharp(buf)
+
+      const shrunk = await sharp(buf)
         .extract({ left, top, width, height })
-        .resize(smallW, smallH, { kernel: "nearest" })
-        .resize(width, height, { kernel: "nearest" })
+        .resize(smallW, smallH, { kernel: "nearest", fit: "fill" })
+        .png()
+        .toBuffer();
+
+      // PNG for the tile: a JPEG overlay would soften the block edges we just
+      // created, which is the one thing a mosaic must not lose.
+      const tile = await sharp(shrunk)
+        .resize(width, height, { kernel: "nearest", fit: "fill" })
+        .png()
         .toBuffer();
 
       overlays.push({ input: tile, left, top });
