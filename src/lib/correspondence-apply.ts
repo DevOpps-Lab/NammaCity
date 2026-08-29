@@ -1,7 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { classifyReply, applyReply, type InboundReply } from "./correspondence";
 import { composeReply } from "./outbox";
-import { composeUpdate } from "./escalation";
 import { sendMail, normalizeMessageId } from "./email/gmail";
 import { verifyAfterPhoto } from "./verify-vision";
 import { postReportUpdate } from "./public-post";
@@ -171,15 +170,20 @@ export async function applyInboundReply(
           now: now(),
         });
         if (closed) {
-          // Announce the resident-grade win on the public timeline.
-          await admin.from("public_posts").insert({
-            report_id: report.id,
-            kind: "update",
-            body: composeUpdate({ ...updated, status: "verified_fixed" }).text,
-            source: "simulated",
-            author: input.userId,
-            at: now(),
-          });
+          // Announce the resident-grade win on the public timeline — through
+          // postReportUpdate, so it actually reaches Bluesky/X.
+          //
+          // This used to insert the row directly with source hardcoded to
+          // "simulated", bypassing postSocial entirely. A verified fix — the
+          // single most publishable event this product produces — could
+          // therefore never be posted publicly on any deployment, however the
+          // social credentials were configured.
+          await postReportUpdate(
+            admin,
+            { ...updated, status: "verified_fixed" },
+            input.userId,
+            "update"
+          );
         }
       }
     }
