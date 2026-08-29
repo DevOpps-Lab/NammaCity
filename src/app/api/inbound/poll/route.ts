@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient, adminConfigured } from "@/lib/supabase/admin";
+import { authorisedScheduler } from "@/lib/api-auth";
 import { fetchUnseen, markSeen, imapConfigured } from "@/lib/email/inbound";
 import { applyInboundReply } from "@/lib/correspondence-apply";
 import { findIntakeUserId } from "@/lib/whatsapp/intake";
@@ -44,17 +44,8 @@ export const runtime = "nodejs";
  */
 let inFlight: Promise<NextResponse> | null = null;
 
-async function authorised(req: Request): Promise<boolean> {
-  const secret = process.env.INBOUND_POLL_SECRET;
-  if (secret && req.headers.get("x-poll-secret") === secret) return true;
-  // Fall back to a logged-in session (the in-app poll).
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getUser();
-  return Boolean(data.user);
-}
-
 export async function POST(req: Request) {
-  if (!(await authorised(req))) {
+  if (!(await authorisedScheduler(req))) {
     return NextResponse.json({ error: "unauthorised" }, { status: 401 });
   }
   if (!adminConfigured()) {

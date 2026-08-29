@@ -1,0 +1,66 @@
+{
+  "name": "CivicAgent — Ward scoreboard",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [1],
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Every Monday 09:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-200, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR-PROJECT.supabase.co/rest/v1/rpc/civic_ward_scoreboard",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "PASTE_SUPABASE_ANON_KEY" },
+            { "name": "Authorization", "value": "Bearer PASTE_SUPABASE_ANON_KEY" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": { "timeout": 30000 }
+      },
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Fetch ward scoreboard",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [20, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// One digest line per ward, plus the comparison the product exists to make.\n// `claims_done` is the department's word; `verified_fixed` is a photograph that\n// passed a check. Reporting them as one number is the thing we refuse to do.\nconst rows = items.map(i => i.json).filter(r => r && r.ward);\n\nif (!rows.length) {\n  return [{ json: { empty: true, digest: 'No non-seed reports yet — nothing to publish.' } }];\n}\n\nconst totals = rows.reduce((a, r) => ({\n  filed: a.filed + Number(r.filed || 0),\n  claims: a.claims + Number(r.claims_done || 0),\n  verified: a.verified + Number(r.verified_fixed || 0),\n  escalated: a.escalated + Number(r.escalated || 0),\n}), { filed: 0, claims: 0, verified: 0, escalated: 0 });\n\nconst lines = rows.slice(0, 10).map(r =>\n  `Ward ${r.ward} (${r.zone}) — ${r.filed} filed · ${r.claims_done} claimed fixed · ${r.verified_fixed} verified · median ${r.median_days_open}d open`\n);\n\nconst verifiedPct = totals.filed ? ((totals.verified / totals.filed) * 100).toFixed(1) : '0.0';\n\nconst digest = [\n  `CivicAgent — weekly ward accountability`,\n  ``,\n  `${totals.filed} reports filed. ${totals.claims} claimed fixed by the department.`,\n  `${totals.verified} verified by a resident's photograph (${verifiedPct}%).`,\n  `${totals.escalated} past the authority's own published deadline.`,\n  ``,\n  ...lines,\n].join('\\n');\n\nreturn [{ json: { digest, totals, wards: rows.length } }];"
+      },
+      "id": "a1b2c3d4-0003-4000-8000-000000000003",
+      "name": "Format digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0]
+    }
+  ],
+  "connections": {
+    "Every Monday 09:00": {
+      "main": [[{ "node": "Fetch ward scoreboard", "type": "main", "index": 0 }]]
+    },
+    "Fetch ward scoreboard": {
+      "main": [[{ "node": "Format digest", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}

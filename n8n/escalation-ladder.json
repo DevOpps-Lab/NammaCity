@@ -1,0 +1,101 @@
+{
+  "name": "CivicAgent — Escalation ladder",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "days", "triggerAtHour": 10 }]
+        }
+      },
+      "id": "b1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Daily 10:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-240, 0]
+    },
+    {
+      "parameters": {
+        "url": "https://namma.duckdns.org/api/escalation/candidates",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-poll-secret", "value": "PASTE_INBOUND_POLL_SECRET" }
+          ]
+        },
+        "options": { "timeout": 30000 }
+      },
+      "id": "b1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Which reports are due?",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-20, 0]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "candidates",
+        "options": {}
+      },
+      "id": "b1b2c3d4-0003-4000-8000-000000000003",
+      "name": "One report at a time",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [200, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://namma.duckdns.org/api/escalation/act",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-poll-secret", "value": "PASTE_INBOUND_POLL_SECRET" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ reportId: $json.reportId, owner: $json.owner, rung: $json.rung }) }}",
+        "options": { "timeout": 60000 }
+      },
+      "id": "b1b2c3d4-0004-4000-8000-000000000004",
+      "name": "File the RTI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [420, 0]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "r1", "name": "reportId", "value": "={{ $json.reportId }}", "type": "string" },
+            { "id": "r2", "name": "rung", "value": "={{ $json.rung }}", "type": "string" },
+            { "id": "r3", "name": "acted", "value": "={{ $json.acted }}", "type": "boolean" },
+            { "id": "r4", "name": "delivered", "value": "={{ $json.delivered }}", "type": "boolean" },
+            { "id": "r5", "name": "note", "value": "={{ $json.acted ? 'RTI filed — statutory 30-day clock started' : ('skipped: ' + ($json.reason || 'unknown')) }}", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1b2c3d4-0005-4000-8000-000000000005",
+      "name": "Record the rung",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [640, 0]
+    }
+  ],
+  "connections": {
+    "Daily 10:00": {
+      "main": [[{ "node": "Which reports are due?", "type": "main", "index": 0 }]]
+    },
+    "Which reports are due?": {
+      "main": [[{ "node": "One report at a time", "type": "main", "index": 0 }]]
+    },
+    "One report at a time": {
+      "main": [[{ "node": "File the RTI", "type": "main", "index": 0 }]]
+    },
+    "File the RTI": {
+      "main": [[{ "node": "Record the rung", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}

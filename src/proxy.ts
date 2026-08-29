@@ -40,11 +40,17 @@ import { fetchWithRetry } from "@/lib/supabase/fetch";
 // because a token is a bearer credential and not an identity, it will only
 // close a report when the vision check independently agrees the defect is gone.
 // A token by itself closes nothing.
+//
+// /api/escalation/ is open for exactly the reason /api/inbound/poll is: the
+// caller is a scheduler with no session and no way to acquire one. Both routes
+// authorise themselves with INBOUND_POLL_SECRET and return 401 without it, so
+// opening the proxy moves the check into the handler rather than removing it.
 const PUBLIC_PATHS = [
   "/login",
   "/signup",
   "/auth",
   "/api/inbound/poll",
+  "/api/escalation/",
   "/api/whatsapp",
   "/api/track/",
   "/track/",
