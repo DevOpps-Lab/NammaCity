@@ -35,10 +35,15 @@ cloning the repo or writing secrets.
 
 Then, on the box:
 
+`useradd --create-home` populates `/opt/civicagent` with shell dotfiles, so
+`git clone .` refuses the directory as non-empty. Initialise in place instead:
+
 ```bash
-sudo -u civicagent -H bash
 cd /opt/civicagent
-git clone https://github.com/DevOpps-Lab/NammaCity.git .
+sudo -u civicagent git init -q
+sudo -u civicagent git remote add origin https://github.com/DevOpps-Lab/NammaCity.git
+sudo -u civicagent git fetch -q --depth 1 origin main
+sudo -u civicagent git checkout -q -B main FETCH_HEAD
 ```
 
 ### Environment
