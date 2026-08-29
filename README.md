@@ -65,10 +65,12 @@ text, same outbox row. It appears on the public Feed and Map like any other.
 Three things are genuinely different, and the app says so rather than implying
 otherwise:
 
-- **Faces are not blurred.** In-app photos are redacted on-device before upload
-  (`src/lib/imaging.ts`, canvas + TF.js). A photo arriving from a Twilio media
-  URL has already reached our server, so only EXIF can be stripped. The report
-  records `source = 'whatsapp'` and the tracking page states this plainly.
+- **Redaction is weaker and later.** In-app photos are redacted in a canvas on
+  the device from boxes a Gemini call returns (`src/lib/imaging.ts`). A photo
+  arriving from a Twilio media URL has already reached our server, so it is
+  redacted there with `sharp` (`src/lib/redact-server.ts`) — faces only, from the
+  same Gemini boxes, after the fact. The report records `source = 'whatsapp'` and
+  the tracking page states this plainly.
 - **The owner is a service account.** `reports.user_id` is NOT NULL, so every
   bot-filed report belongs to one shared intake user. Citizens reach their own
   report through an unguessable `public_token`, which is what makes the tracking
@@ -384,16 +386,24 @@ attempting a direct close/escalate/delete against PostgREST as a second account.
 
 ### Capture pipeline (`src/lib/imaging.ts`, `src/lib/detect.ts`)
 
-Photo → **on-device redaction** → analysis → confirm → file. Nothing is uploaded
-before redaction, which is the point: the cheapest way to be safe with
-bystanders is for identifiable data to never reach our systems.
+Photo → **detect faces + number plates** → **on-device redaction** → analysis →
+confirm → file. One step leaves the device un-redacted by necessity: a
+downscaled, EXIF-stripped copy is sent to `/api/analyze-image`, and the single
+Gemini call there returns the face and number-plate boxes alongside category and
+severity. The original file never leaves the phone, and only the redacted result
+is stored, emailed or posted.
 
-- Faces auto-redacted via the browser's native `FaceDetector` where available;
-  **tap-to-blur** everywhere else. When the browser can't detect, the UI says so
-  rather than implying the photo is clean.
-- Redaction is **pixelation, not a reversible blur**.
+- Faces and number plates are covered with an **opaque box** — a true redaction,
+  not a mosaic. Pixelation still leaks a silhouette and skin tone; a photo going
+  to a government office and a public feed should carry neither. **Tap-to-cover**
+  handles anything the model misses.
+- If detection can't run (offline / no key / error), the Report tab **blocks
+  filing** behind a banner + checkbox rather than implying the photo is clean.
 - Canvas re-encode **strips EXIF** as a side effect. Geolocation is read live
   instead — browsers and messaging apps strip EXIF GPS inconsistently.
+- The WhatsApp intake and the public tracking-link verify both redact
+  **server-side** from the same Gemini boxes (`src/lib/redact-server.ts`), since
+  neither has a browser.
 - Severity is computed from real pixel statistics (luminance, contrast,
   saturation, dark-region geometry), with explicit penalties for the documented
   confusers: low contrast, glare/wet road, shadow-dominated frames, and
@@ -546,10 +556,13 @@ apply to every post regardless of platform.
 ## Stack
 
 Next.js 16.2.10 (Turbopack) · React 19 · Supabase (Postgres, Auth, Storage) ·
-MapLibre GL · Turf · Tailwind v4. **Gemini** for category + after-photo
-verification · **Gmail** SMTP/IMAP via `nodemailer` + `imapflow` + `mailparser`
-· **Bluesky** via `@atproto/api` (`twitter-api-v2` for the X path) ·
-**TensorFlow.js / BlazeFace** for on-device face redaction.
+MapLibre GL · Turf · Tailwind v4. **Gemini** for category + severity + face /
+number-plate detection + after-photo verification (one call on the Report path)
+· **Gmail** SMTP/IMAP via `nodemailer` + `imapflow` + `mailparser` · **Bluesky**
+via `@atproto/api` (`twitter-api-v2` for the X path). Redaction runs in a canvas
+on the device (pixelate faces, solid-fill plates) or with `sharp` server-side
+for the browserless intake paths. `onnxruntime-web` runs the dashcam pothole
+model.
 
 > Auth runs through `src/proxy.ts`. Next 16 renamed Middleware to Proxy; the
 > file must sit at `src/proxy.ts`, beside `app/`. It refreshes the Supabase

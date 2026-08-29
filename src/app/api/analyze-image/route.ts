@@ -50,6 +50,10 @@ export async function POST(request: NextRequest) {
       severity: result.severity,
       confidence: result.confidence,
       reason: result.reason,
+      // Normalised 0-1000 boxes; the client (llm-analyze.ts) scales them to the
+      // frame it is about to redact.
+      faces: result.faces,
+      plates: result.plates,
     });
   }
 
