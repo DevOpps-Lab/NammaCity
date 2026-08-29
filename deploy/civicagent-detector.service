@@ -29,6 +29,13 @@ Environment=MKL_NUM_THREADS=3
 # Ultralytics otherwise phones home and tries to write a settings file.
 Environment=YOLO_OFFLINE=True
 Environment=MPLCONFIGDIR=/tmp/mpl
+# Ultralytics writes a settings file on first run and $HOME is not writable.
+Environment=YOLO_CONFIG_DIR=/tmp/Ultralytics
+
+# The sidecar defaults to 8001. This box already runs an unrelated Flask
+# service there, so it is moved rather than the other one evicted. Must match
+# DETECTOR_URL in .env.local.
+Environment=DETECTOR_PORT=8002
 
 ExecStart=/opt/civicagent/detector/venv/bin/python /opt/civicagent/detector/server.py
 

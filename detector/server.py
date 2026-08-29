@@ -7,6 +7,7 @@ port 8001 (ufw allows 22/80/443 only). That is also why there is no CORS
 middleware here, unlike the project this was adapted from.
 """
 
+import os
 import time
 
 import cv2
@@ -15,6 +16,11 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
 
 from detect import CONF_THRESHOLD, IMG_SIZE, models, run
+
+# 8001 by default, but overridable — on the demo box an unrelated Flask service
+# already holds 8001, and evicting someone else's running service to claim a
+# port number is not a thing a deploy script should do quietly.
+PORT = int(os.getenv("DETECTOR_PORT", "8001"))
 
 app = FastAPI(title="CivicAgent pothole detector", version="1.0.0")
 
@@ -26,6 +32,7 @@ async def health():
         "models": list(models),
         "imgsz": IMG_SIZE,
         "conf": CONF_THRESHOLD,
+        "port": PORT,
     }
 
 
@@ -54,4 +61,4 @@ async def infer(frame: UploadFile = File(...)):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=8001, log_level="info")
+    uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="info")

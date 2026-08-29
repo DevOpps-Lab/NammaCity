@@ -70,13 +70,28 @@ fi
 log "Installing the service"
 cp "${APP_DIR}/deploy/civicagent-detector.service" /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now civicagent-detector
-sleep 8
+systemctl restart civicagent-detector
+systemctl enable -q civicagent-detector
+sleep 10
 
-log "Health"
-curl -fsS --max-time 20 http://127.0.0.1:8001/health || {
+# Read the port back out of the unit rather than hardcoding it here, so the two
+# cannot drift. Anything else already listening is left alone — move the
+# sidecar, do not evict a service somebody else is running.
+PORT="$(sed -n 's/^Environment=DETECTOR_PORT=//p' /etc/systemd/system/civicagent-detector.service)"
+PORT="${PORT:-8001}"
+
+log "Health (port ${PORT})"
+curl -fsS --max-time 30 "http://127.0.0.1:${PORT}/health" || {
   echo "  not healthy — journalctl -u civicagent-detector -n 40"
   exit 1
 }
+echo ""
+
+if ! grep -q "^DETECTOR_URL=" "${APP_DIR}/.env.local" 2>/dev/null; then
+  log "Pointing the app at the sidecar"
+  echo "DETECTOR_URL=http://127.0.0.1:${PORT}" >> "${APP_DIR}/.env.local"
+  systemctl restart civicagent
+  echo "  added DETECTOR_URL and restarted civicagent"
+fi
 echo ""
 log "Detector ready"
