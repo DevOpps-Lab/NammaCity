@@ -94,6 +94,9 @@ export async function resolveAuthority(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ lat, lng, category }),
+      // Tier 3 asks an LLM, so this can be slow; bounded so a stall becomes an
+      // honest "unreachable" instead of an indefinite spinner.
+      signal: AbortSignal.timeout(30_000),
     });
     if (!res.ok) return { ok: false, kind: "unreachable" };
 

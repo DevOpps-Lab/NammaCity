@@ -22,9 +22,26 @@ import type { BlurRegion } from "./imaging";
 let modelCache: any = null;
 let loadPromise: Promise<unknown> | null = null;
 
+/**
+ * How long one photo will wait for the face model before giving up on it.
+ *
+ * blazeface.load() pulls weights from a Google CDN, and NOTHING in that path
+ * has a timeout — so on a slow, throttled or CDN-blocked network the promise
+ * simply never settles. `detectFacesWithTFJS` already degrades to manual review
+ * on failure, but a hang is not a failure: it never reaches the catch, so the
+ * Report tab sat on "Redacting faces on your device…" forever, and because
+ * `loadPromise` is cached module-wide every retry re-awaited the same dead
+ * promise. Only a page reload escaped.
+ *
+ * The download is deliberately NOT cancelled on timeout. It keeps running, so a
+ * second attempt either finds `modelCache` populated or races a load that is
+ * already part-done — retries get faster instead of starting over.
+ */
+const MODEL_LOAD_TIMEOUT_MS = 12_000;
+
 async function loadModel() {
   if (modelCache) return modelCache;
-  if (loadPromise) return loadPromise;
+  if (loadPromise) return withTimeout(loadPromise);
 
   loadPromise = (async () => {
     // Dynamic imports so the heavy TF.js bundle is never included in the
@@ -49,7 +66,35 @@ async function loadModel() {
     return modelCache;
   })();
 
-  return loadPromise;
+  // A rejection that nobody is awaiting yet (the timeout branch below returns
+  // first) would otherwise surface as an unhandled rejection in the console.
+  loadPromise.catch(() => {});
+
+  return withTimeout(loadPromise);
+}
+
+/**
+ * Bounds the wait without touching the underlying load. Throwing is the point:
+ * it routes into the existing catch in `detectFacesWithTFJS`, which reports
+ * `supported: false` — and the UI already treats that as "we could not check
+ * for faces, review this photo yourself" rather than implying it is clean.
+ */
+function withTimeout(p: Promise<unknown>): Promise<unknown> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    p,
+    new Promise((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `blazeface model did not load within ${MODEL_LOAD_TIMEOUT_MS}ms (network or CDN)`
+            )
+          ),
+        MODEL_LOAD_TIMEOUT_MS
+      );
+    }),
+  ]).finally(() => clearTimeout(timer));
 }
 
 export interface TFJSRedactResult {

@@ -56,6 +56,11 @@ export async function llmAnalyze(dataUrl: string): Promise<LLMAnalysisResult> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dataUrl }),
+      // A Vercel function runs for up to 300s, so a stalled Gemini call would
+      // leave the Report tab spinning for five minutes with no way out. The
+      // catch below already degrades to "choose the category yourself"; this
+      // just makes sure we actually reach it.
+      signal: AbortSignal.timeout(30_000),
     });
     payload = await res.json();
   } catch {
