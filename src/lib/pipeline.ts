@@ -5,7 +5,6 @@ import type { AuthorityRecord } from "./authorities";
 import type { OutboxItem } from "./outbox";
 import { composeComplaint } from "./outbox";
 import { now, HOUR } from "./demoClock";
-import { llmRouteAuthority } from "./llm-routing";
 import { getSLA } from "./sla-lookup";
 
 /**
@@ -64,105 +63,51 @@ export type ResolveOutcome =
   | { ok: true; routing: RoutingResult; authorities: AuthorityRecord[]; ms: number }
   /** Resolver unreachable — we will not guess a jurisdiction. */
   | { ok: false; kind: "unreachable" }
-  /** Resolved a place, but no verified contact registry covers it. */
+  /**
+   * Resolved a place, but no verified contact registry covers it.
+   *
+   * Kept in the union because the UI still renders a branch for it, but the
+   * server chain no longer produces it: Tier 4 files to a clearly-unverified
+   * general municipal body rather than refusing. See resolve-authority.ts.
+   */
   | { ok: false; kind: "no_authority"; routing: RoutingResult };
 
+/**
+ * Resolves the responsible authority for a coordinate, in the browser.
+ *
+ * A thin client over /api/route-authority, which now serves the FULL tier
+ * chain (see src/lib/resolve-authority.ts). The LLM (Tier 3) and generic
+ * municipal (Tier 4) fallbacks used to be reimplemented here, client-side,
+ * which is why the WhatsApp webhook — calling the spatial lib directly —
+ * silently lacked them and refused to file outside Chennai. One chain now,
+ * server-side, for both intake paths.
+ */
 export async function resolveAuthority(
   lat: number,
   lng: number,
   category: IssueCategory
 ): Promise<ResolveOutcome> {
   const started = performance.now();
-  let routing: RoutingResult;
   try {
     const res = await fetch("/api/route-authority", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ lat, lng, category }),
     });
-    routing = (await res.json()).routing;
+    if (!res.ok) return { ok: false, kind: "unreachable" };
+
+    const routing = (await res.json()).routing as RoutingResult | undefined;
+    if (!routing) return { ok: false, kind: "unreachable" };
+
+    const authorities = (routing.authorities ?? []) as AuthorityRecord[];
+    // The chain always returns at least the Tier 4 fallback, so an empty list
+    // means something upstream is wrong rather than "nowhere to file".
+    if (!authorities.length) return { ok: false, kind: "no_authority", routing };
+
+    return { ok: true, routing, authorities, ms: Math.round(performance.now() - started) };
   } catch {
     return { ok: false, kind: "unreachable" };
   }
-
-  const authorities = (routing.authorities ?? []) as AuthorityRecord[];
-
-  // --- Primary path: deterministic spatial routing resolved an authority ----
-  if (authorities.length) {
-    return { ok: true, routing, authorities, ms: Math.round(performance.now() - started) };
-  }
-
-  // --- Fallback: no verified contact registry for this location -------------
-  // The deterministic system (Tier 1 GCC polygons + Tier 2 OSM) knows the
-  // place but has no contact for it. Rather than refusing entirely, try the
-  // LLM — it may know the responsible department for this city.
-  // Hard 10s timeout: if Gemini is slow we still want the UI to resolve,
-  // even if it means showing the no_authority state.
-  const cityName = routing.cityName;
-  if (cityName) {
-    try {
-      const llmResult = await Promise.race([
-        llmRouteAuthority(cityName, category),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 4_000)),
-      ]);
-      if (llmResult) {
-        const fallbackRouting: RoutingResult = {
-          ...routing,
-          tier: 3,
-          confidence: "low",
-          method: `LLM routing fallback for ${cityName} — deterministic registry had no contact. confidence ${llmResult.confidence.toFixed(2)}`,
-          authorities: [llmResult.authority],
-          ambiguityNote:
-            "Contact resolved by LLM, not a verified primary source. Marked unverified in the outbox.",
-        };
-        return {
-          ok: true,
-          routing: fallbackRouting,
-          authorities: [llmResult.authority],
-          ms: Math.round(performance.now() - started),
-        };
-      }
-    } catch {
-      // LLM fallback failed (e.g. the vision/text model is rate-limited) —
-      // fall through to the deterministic fallback below rather than hanging.
-    }
-  }
-
-  // --- Deterministic fallback: a general municipal body -----------------------
-  // We know the coordinates and often a city, but have no verified registry and
-  // the LLM was unavailable. Refusing entirely would lock out every citizen
-  // outside the ~28 Indian ULBs with open ward polygons. Instead we file to a
-  // general municipal office, clearly marked UNVERIFIED — honest about the
-  // uncertainty without denying the citizen a filing. The real send target is
-  // the sandbox/demo mailbox regardless, so this never mails a stranger.
-  const place = routing.cityName ?? "this location";
-  const fallbackAuthority: AuthorityRecord = {
-    id: "fallback-municipal",
-    name: routing.cityName
-      ? `${routing.cityName} — Municipal Body (General Complaints)`
-      : "Local Municipal Body (General Complaints)",
-    email: "commissioner@localbody.gov.in",
-    verified: false,
-    source: "Deterministic fallback — no verified registry covers this location",
-    slaHours: 72,
-    slaSource: "Default 72h — no published charter located for this location",
-    categories: [category],
-  };
-  const fallbackRouting: RoutingResult = {
-    ...routing,
-    tier: 4,
-    confidence: "low",
-    method: `No verified registry for ${place} and LLM routing unavailable — filed to a general municipal body (unverified).`,
-    authorities: [fallbackAuthority],
-    ambiguityNote:
-      "Contact is a general municipal fallback, not a verified primary source. Marked unverified in the outbox.",
-  };
-  return {
-    ok: true,
-    routing: fallbackRouting,
-    authorities: [fallbackAuthority],
-    ms: Math.round(performance.now() - started),
-  };
 }
 
 export interface ConfirmedCapture {

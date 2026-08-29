@@ -2,8 +2,7 @@ import crypto from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as db from "../db";
 import { fileReport, type PipelineDeps } from "../pipeline";
-import { resolveAuthority } from "../routing";
-import type { AuthorityRecord } from "../authorities";
+import { resolveAuthorityFull } from "../resolve-authority";
 import { toSeverity } from "../severity";
 import { analyseImage, visionConfigured } from "../vision";
 import { stripJpegMetadata } from "../exif";
@@ -35,8 +34,9 @@ import { hashPhone, downloadTwilioMedia } from "./twilio";
  *
  * What could NOT be reused, and why:
  *   - `pipeline.locate()` needs navigator.geolocation. The pin supplies it.
- *   - `pipeline.resolveAuthority()` fetches a relative URL. `lib/routing.ts` is
- *     already server-only, so this calls it directly and skips the HTTP hop.
+ *   - `pipeline.resolveAuthority()` fetches a relative URL, so routing goes
+ *     through `lib/resolve-authority.ts` — the same full tier chain the app
+ *     resolves through, in-process, with no HTTP hop.
  *   - `store.dispatchReport()` posts to /api/dispatch, which is cookie-gated.
  *     Mail goes out inline here, the way correspondence-apply.ts already does.
  *   - `imaging.ts` (face pixelation, aHash) is canvas-bound. See stripJpegMetadata.
@@ -219,19 +219,23 @@ export async function handleLocation(
 
   const intakeUserId = await getIntakeUserId(admin);
 
-  const started = Date.now();
-  const routing = await resolveAuthority(lat, lng, pending.category);
-  const resolveMs = Date.now() - started;
-  const authorities = (routing.authorities ?? []) as AuthorityRecord[];
+  // The FULL tier chain, identical to what the app resolves through. This used
+  // to call the spatial lib directly, which only implements Tiers 1-2 and
+  // returns no authorities outside the Chennai ward polygons — so every report
+  // from elsewhere was refused here while the same photo filed fine in the app.
+  const outcome = await resolveAuthorityFull(lat, lng, pending.category);
 
-  if (!authorities.length) {
-    // The same refusal the app makes: we do not invent a recipient.
+  if (!outcome.ok) {
+    // Only reachable if the spatial resolver itself failed (e.g. the ward
+    // GeoJSON is missing). The chain otherwise always yields a Tier 4 fallback.
     return {
-      reply: `We found your location but have no verified contact for the responsible agency there, so we won't file blind.
+      reply: `Our location service is down for a moment, so we haven't filed this yet.
 
-Your photo is saved — reply with a different location, or report it in the app.`,
+Your photo is saved — reply with your location again in a minute.`,
     };
   }
+
+  const { routing, authorities, ms: resolveMs } = outcome;
 
   // fileReport only reads dataUrl, aHash, facesFound and bytes off the image.
   // aHash stays empty: the perceptual hash needs canvas, so hash-based
@@ -295,6 +299,7 @@ Your photo is saved — reply with a different location, or report it in the app
 
   await clearPending(admin, phoneHash);
   await dispatchComplaints(admin, intakeUserId, report.id);
+  await sweepIntakeLedger(admin, intakeUserId);
 
   const token = stamped?.public_token as string | undefined;
   const where = routing.ward
@@ -311,9 +316,20 @@ Your photo is saved — reply with a different location, or report it in the app
     `✅ Filed as *${report.id}* — ${categoryLabel(report.category)}, severity ${report.severity}.`,
     ``,
     `📍 ${where}`,
-    `🏛 Filed to: ${report.filedTo.join(", ")}${unverified ? " (contact unverified)" : ""}`,
+    `🏛 Filed to: ${report.filedTo.join(", ")}`,
     `⏱ Deadline: ${deadline}`,
   ];
+  // Say how confident the routing is, rather than presenting a Tier 4 guess
+  // with the same certainty as a ward-polygon match. The authority record is
+  // already flagged unverified everywhere else; the reply should agree.
+  if (unverified) {
+    lines.push(
+      ``,
+      routing.tier === 3
+        ? `⚠️ We don't hold a verified contact for this area, so the department above was identified by AI and is unconfirmed.`
+        : `⚠️ We don't hold a verified contact for this area, so this went to the general municipal office. Unconfirmed.`
+    );
+  }
   if (token) lines.push(``, `Track it here:`, `${baseUrl()}/track/${token}`);
   lines.push(
     ``,
@@ -321,6 +337,31 @@ Your photo is saved — reply with a different location, or report it in the app
   );
 
   return { reply: lines.join("\n"), report };
+}
+
+/**
+ * Advances any overdue WhatsApp reports through past_sla and escalated.
+ *
+ * The app sweeps the citizen's own ledger on a timer while they have it open.
+ * Nobody ever logs in as the intake account, and `civic_sweep` reads
+ * `auth.uid()` — NULL under the service-role client — so without this these
+ * reports would sit at 'filed' forever, deadline receding, never escalating.
+ *
+ * Piggybacking on inbound messages rather than adding a cron: each WhatsApp
+ * conversation nudges the whole intake ledger forward, which is enough for a
+ * ledger that only grows through this same channel. Failure is logged, never
+ * fatal — a sweep problem must not cost a citizen their filed report.
+ */
+async function sweepIntakeLedger(admin: SupabaseClient, userId: string): Promise<void> {
+  try {
+    const { error } = await admin.rpc("civic_sweep_owner", {
+      p_owner: userId,
+      p_now: Date.now(),
+    });
+    if (error) console.warn("[whatsapp] sweep failed", error.message);
+  } catch (err) {
+    console.warn("[whatsapp] sweep threw", err);
+  }
 }
 
 /**

@@ -34,16 +34,31 @@ interface WardProps {
 
 let wardCache: FeatureCollection<Polygon | MultiPolygon, WardProps> | null = null;
 
+/**
+ * Returns null rather than throwing when the dataset is missing or corrupt.
+ *
+ * This used to throw straight out of resolveAuthority. That was survivable when
+ * only an API route called it (a 500), but it is now on the path for every
+ * report including WhatsApp intake, where a throw would abandon a citizen's
+ * photo mid-conversation. A missing Chennai dataset should degrade to Tier 2,
+ * not take down routing for the whole country.
+ */
 function loadChennaiWards() {
   if (wardCache) return wardCache;
-  const file = path.join(process.cwd(), "public", "data", "chennai-wards.geojson");
-  wardCache = JSON.parse(fs.readFileSync(file, "utf-8"));
-  return wardCache!;
+  try {
+    const file = path.join(process.cwd(), "public", "data", "chennai-wards.geojson");
+    wardCache = JSON.parse(fs.readFileSync(file, "utf-8"));
+    return wardCache!;
+  } catch (error) {
+    console.error("[routing] Chennai ward dataset unavailable, skipping Tier 1", error);
+    return null;
+  }
 }
 
 /** Tier 1 — local ward polygons. Instant, offline, cannot fail on venue wifi. */
 function tier1Chennai(lat: number, lng: number) {
   const wards = loadChennaiWards();
+  if (!wards) return null;
   const pt = point([lng, lat]);
 
   for (const f of wards.features) {
@@ -103,13 +118,18 @@ async function tier2Osm(lat: number, lng: number): Promise<Tier2Result | null> {
     `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}` +
     `&format=jsonv2&zoom=18&addressdetails=1`;
 
+  // Nominatim is a free service with no availability guarantee, and it is now
+  // on the path for every report outside Chennai. Without a deadline a hung
+  // request stalls the whole resolve — and on WhatsApp that is a citizen
+  // waiting on a reply that never comes.
   const res = await fetch(url, {
     headers: { "User-Agent": "civicagent/0.1 (civic issue reporting; dev)" },
+    signal: AbortSignal.timeout(5_000),
   });
-  if (!res.ok) {
-    geoCache.set(key, null);
-    return null;
-  }
+  // Deliberately NOT cached: a 429 or a blip would otherwise poison this
+  // coordinate for the life of the process, since the cache is never evicted.
+  // Only successful lookups are worth remembering.
+  if (!res.ok) return null;
 
   const data = await res.json();
   const addr = data.address ?? {};
@@ -118,6 +138,8 @@ async function tier2Osm(lat: number, lng: number): Promise<Tier2Result | null> {
   const cityName =
     addr.city_district ?? addr.city ?? addr.town ?? addr.municipality ?? addr.county;
 
+  // A real answer with no usable place name — cache it, since re-asking would
+  // get the same result.
   if (!cityName) {
     geoCache.set(key, null);
     return null;

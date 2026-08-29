@@ -148,6 +148,37 @@ export function authoritiesFor(
 }
 
 /**
+ * TIER 4 — the last resort, when no verified registry covers a location and the
+ * LLM fallback could not answer either.
+ *
+ * Refusing outright would lock out every citizen outside the ~28 Indian urban
+ * local bodies with open ward polygons, which is most of the country. So we file
+ * to a general municipal office, clearly marked UNVERIFIED: honest about the
+ * uncertainty without denying the citizen a filing. The real send target is the
+ * sandbox mailbox regardless, so this never mails a stranger.
+ *
+ * Was hardcoded inline in `pipeline.ts`; it lives here now because both the
+ * browser and the WhatsApp webhook resolve through one shared chain.
+ */
+export function genericMunicipalAuthority(
+  cityName: string | undefined,
+  category: IssueCategory
+): AuthorityRecord {
+  return {
+    id: "fallback-municipal",
+    name: cityName
+      ? `${cityName} — Municipal Body (General Complaints)`
+      : "Local Municipal Body (General Complaints)",
+    email: "commissioner@localbody.gov.in",
+    verified: false,
+    source: "Deterministic fallback — no verified registry covers this location",
+    slaHours: 72,
+    slaSource: "Default 72h — no published charter located for this location",
+    categories: [category],
+  };
+}
+
+/**
  * Documented SLAs from other jurisdictions, shown for context in the UI.
  * We always cite the authority's OWN published deadline rather than inventing one —
  * "you missed your own 48-hour commitment" is rhetorically and legally far

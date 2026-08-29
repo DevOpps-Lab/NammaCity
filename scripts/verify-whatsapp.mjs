@@ -183,6 +183,43 @@ let filedToken = null;
   }
 }
 
+// 4b. THE REGRESSION THAT MATTERED: a location outside the Chennai ward
+// polygons. This refused in production with "no verified contact for the
+// responsible agency ... we won't file blind", while the same photo filed fine
+// in the app, because the webhook only ran Tiers 1-2. It must now reach the
+// LLM (tier 3) or generic-municipal (tier 4) fallback and file.
+console.log("\nNon-Chennai location (Bengaluru) — the reported bug");
+let bengaluruToken = null;
+{
+  const OTHER = "+919000000002";
+  await post({
+    From: `whatsapp:${OTHER}`,
+    Body: "overflowing bin",
+    NumMedia: "1",
+    MediaUrl0: `${BASE}/icons/icon-192.png`,
+    MediaContentType0: "image/png",
+  });
+  const filed = await post({
+    From: `whatsapp:${OTHER}`,
+    // MG Road, Bengaluru — far outside any Chennai ward polygon.
+    Latitude: "12.9757",
+    Longitude: "77.6068",
+  });
+  check(filed.status === 200, `location accepted (${filed.status})`);
+  const refused = /won't file blind|no verified contact for the responsible/i.test(filed.text);
+  check(!refused, "does NOT refuse with 'we won't file blind'");
+  const m = /\/track\/([0-9a-f-]{36})/i.exec(filed.text);
+  if (check(Boolean(m), "filed, with a tracking link")) {
+    bengaluruToken = m[1];
+    check(
+      /unconfirmed|unverified/i.test(filed.text),
+      "reply says the contact is unverified (tier 3 or 4 honesty)"
+    );
+  } else {
+    console.error(`     reply was: ${filed.text.slice(0, 400)}`);
+  }
+}
+
 // 5. What actually landed in the database.
 console.log("\nPersisted state");
 if (filedToken && SUPA_URL && SERVICE_KEY) {
@@ -243,6 +280,33 @@ if (filedToken && SUPA_URL && SERVICE_KEY) {
     leftover.error === null && leftover.count === 0,
     `pending session cleared after filing (${leftover.error ?? leftover.count})`
   );
+
+  // The Bengaluru report: routed via a fallback tier, with an unverified
+  // contact, and community-visible so it shows in the Feed and on the Map.
+  if (bengaluruToken) {
+    const { data: b } = await db
+      .from("reports")
+      .select("id, user_id, routing, is_seed, filed_to, status")
+      .eq("public_token", bengaluruToken)
+      .maybeSingle();
+    if (check(Boolean(b), "Bengaluru report row exists")) {
+      const tier = b.routing?.tier;
+      check(tier === 3 || tier === 4, `routed via a fallback tier (got tier ${tier})`);
+      const auths = b.routing?.authorities ?? [];
+      check(auths.length > 0, `has at least one authority (${auths.length})`);
+      check(
+        auths.every((a) => a.verified === false),
+        "fallback authorities are all marked unverified"
+      );
+      check(b.is_seed === false, "is_seed false → visible in the community Feed and Map");
+      const ob = await countRows("outbox_items", {
+        user_id: b.user_id,
+        report_id: b.id,
+        kind: "complaint",
+      });
+      check(ob.error === null && ob.count > 0, `complaint composed (${ob.error ?? ob.count})`);
+    }
+  }
 } else if (!SUPA_URL || !SERVICE_KEY) {
   console.log("  - skipped (no Supabase service-role credentials in .env.local)");
 }

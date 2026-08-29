@@ -1,4 +1,5 @@
 import { CATEGORY_VALUES, type IssueCategory } from "./types";
+import { parseLoosely } from "./json-loose";
 
 /**
  * GEMINI VISION — the one implementation.
@@ -50,22 +51,6 @@ Calibration rules:
 
 Known confusers: wet patches and shadows look like potholes; manhole covers are not potholes;
 a storm water drain is a kerbside grated inlet; sewage overflow involves standing effluent.`;
-
-function parseLoosely(text: string): Record<string, unknown> | null {
-  const cleaned = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```$/, "");
-  try {
-    return JSON.parse(cleaned) as Record<string, unknown>;
-  } catch {
-    const start = cleaned.indexOf("{");
-    const end = cleaned.lastIndexOf("}");
-    if (start === -1 || end <= start) return null;
-    try {
-      return JSON.parse(cleaned.slice(start, end + 1)) as Record<string, unknown>;
-    } catch {
-      return null;
-    }
-  }
-}
 
 export function visionConfigured(): boolean {
   return Boolean(process.env.GEMINI_API_KEY);
