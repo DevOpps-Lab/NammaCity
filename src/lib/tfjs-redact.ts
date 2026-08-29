@@ -7,15 +7,22 @@
  * blazeface — a lightweight TensorFlow.js model that runs consistently in all
  * modern browsers.
  *
- * The model weights (~4 MB) are lazy-loaded on the first call so they never
- * block the initial page paint. On every subsequent call the loaded model is
- * reused from the module-level cache.
+ * The model (466 KB, self-hosted from /models/blazeface) is lazy-loaded on the
+ * first call so it never blocks the initial page paint. On every subsequent
+ * call the loaded model is reused from the module-level cache.
+ *
+ * The "~4 MB" this comment used to claim was the TF.js LIBRARY, not the model —
+ * which mattered, because it made a slow first run look like an unavoidable
+ * cost of a big download rather than a fetch from a third-party CDN.
  *
  * Returns the same BlurRegion[] shape that imaging.ts already consumes, so
  * nothing else in the pipeline changes.
  */
 
 import type { BlurRegion } from "./imaging";
+
+/** Self-hosted so face redaction never depends on a third-party CDN. */
+const MODEL_URL = "/models/blazeface/model.json";
 
 // Module-level cache — one load per browser session.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -37,7 +44,7 @@ let loadPromise: Promise<unknown> | null = null;
  * second attempt either finds `modelCache` populated or races a load that is
  * already part-done — retries get faster instead of starting over.
  */
-const MODEL_LOAD_TIMEOUT_MS = 12_000;
+const MODEL_LOAD_TIMEOUT_MS = 20_000;
 
 async function loadModel() {
   if (modelCache) return modelCache;
@@ -62,7 +69,24 @@ async function loadModel() {
     }
     await tf.ready();
 
-    modelCache = await blazeface.load();
+    // SELF-HOSTED WEIGHTS. blazeface.load() with no modelUrl fetches from
+    // tfhub.dev, which is a third-party host this app does not control and
+    // cannot guarantee reachability of — on a phone on 4G in India it was slow
+    // enough to blow the load timeout, and the Report tab fell back to "face
+    // blurring could not run" on a photo with a person in it.
+    //
+    // The model is 466 KB total. It now ships from the same origin that just
+    // served the page, so if the app loads, the model loads. Same treatment
+    // the dashcam detector already gets (public/models/pothole-yolov8n.onnx).
+    //
+    // The CDN stays as a fallback for the case where the local files are
+    // missing (a partial deploy), because a remote model beats no model.
+    try {
+      modelCache = await blazeface.load({ modelUrl: MODEL_URL });
+    } catch (err) {
+      console.warn("[tfjs-redact] self-hosted model failed, trying the CDN:", err);
+      modelCache = await blazeface.load();
+    }
     return modelCache;
   })();
 
