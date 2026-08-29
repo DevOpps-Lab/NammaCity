@@ -329,12 +329,28 @@ export interface ThreadEntry {
   actuallyTo?: string;
 }
 
+/**
+ * Records an inbound authority reply, and CLAIMS it.
+ *
+ * Returns false when this exact email (by Message-ID) has already been
+ * recorded — which is the signal to the caller that a concurrent or repeated
+ * poll got here first and it must not act on the reply a second time. The
+ * uniqueness is enforced by a partial unique index (0012), not by a read-then-
+ * write check, because the whole problem is two pollers racing.
+ */
 export async function insertInboundReply(
   db: DB,
   userId: string,
   reportId: string,
-  reply: { at: number; from: string; subject: string; body: string; kind: string }
-) {
+  reply: {
+    at: number;
+    from: string;
+    subject: string;
+    body: string;
+    kind: string;
+    providerMessageId?: string;
+  }
+): Promise<boolean> {
   const { error } = await db.from("inbound_replies").insert({
     user_id: userId,
     report_id: reportId,
@@ -343,8 +359,12 @@ export async function insertInboundReply(
     subject: reply.subject,
     body: reply.body,
     kind: reply.kind,
+    provider_message_id: reply.providerMessageId || null,
   });
+  // 23505 = unique violation on provider_message_id: already handled.
+  if (error?.code === "23505") return false;
   if (error) throw error;
+  return true;
 }
 
 /**

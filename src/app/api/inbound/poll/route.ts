@@ -20,11 +20,29 @@ import type { InboundReply } from "@/lib/correspondence";
  * message to its OWNER via the stored provider Message-ID, regardless of who
  * triggered the poll. In this single-inbox demo that is the intended behaviour.
  *
- * Idempotent: a message is flagged \Seen only after it is applied, and matching
- * is by Message-ID, so re-running the poll never double-applies a reply.
+ * IDEMPOTENCE, and how it was wrong. This used to claim that flagging a message
+ * \Seen only after applying it made re-runs safe. It does the opposite: the
+ * apply sends SMTP mail, posts to the public timeline and can run a Gemini
+ * vision check, so the window between fetch and \Seen is seconds wide — and the
+ * client polls every 30s (5s on the demo clock) from every open tab. Overlapping
+ * polls re-fetched the same unseen message and applied it again. One authority
+ * reply put six identical auto-replies in a citizen's inbox.
+ *
+ * Two layers now. The real guarantee is in Postgres: applyInboundReply claims
+ * the email against a unique index on inbound_replies.provider_message_id
+ * before any side effect, so a replay loses the race and stops. The in-flight
+ * guard below is just courtesy — it keeps one instance from stampeding itself,
+ * and cannot help across instances or tabs, which is exactly why it is not the
+ * mechanism relied upon.
  */
 
 export const runtime = "nodejs";
+
+/**
+ * One poll at a time per instance. Concurrent callers get the in-flight run's
+ * result rather than starting a competing IMAP session.
+ */
+let inFlight: Promise<NextResponse> | null = null;
 
 async function authorised(req: Request): Promise<boolean> {
   const secret = process.env.INBOUND_POLL_SECRET;
@@ -42,6 +60,18 @@ export async function POST(req: Request) {
   if (!adminConfigured()) {
     return NextResponse.json({ configured: false, processed: 0 });
   }
+
+  if (inFlight) return (await inFlight).clone();
+  const run = doPoll();
+  inFlight = run;
+  try {
+    return (await run).clone();
+  } finally {
+    inFlight = null;
+  }
+}
+
+async function doPoll(): Promise<NextResponse> {
 
   const admin = createAdminClient();
 
@@ -114,9 +144,16 @@ export async function POST(req: Request) {
     });
 
     if (applied.matched) {
+      // Flag it read even when it was a duplicate: the work was already done by
+      // whoever won the claim, and leaving it unread guarantees we re-enter
+      // this path on every future poll.
       await markSeen(msg.uid);
-      processed += 1;
-      results.push({ subject: msg.subject, matched: true, kind: applied.kind });
+      if (!applied.duplicate) processed += 1;
+      results.push({
+        subject: msg.subject,
+        matched: true,
+        kind: applied.duplicate ? `${applied.kind} (already applied)` : applied.kind,
+      });
     } else {
       results.push({ subject: msg.subject, matched: false });
     }

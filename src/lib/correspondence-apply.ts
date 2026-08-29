@@ -39,6 +39,11 @@ export interface ApplyInboundResult {
   autoResponded: boolean;
   /** True when an attached authority photo verified and closed the case. */
   closed?: boolean;
+  /**
+   * This exact email had already been applied by another poll. Nothing was
+   * changed and nothing was sent — but the caller should still mark it \Seen.
+   */
+  duplicate?: boolean;
 }
 
 export async function applyInboundReply(
@@ -51,19 +56,40 @@ export async function applyInboundReply(
   const classified = classifyReply(input.reply, report);
   const updated = applyReply(report, classified);
 
-  await db.updateReport(admin, report.id, input.userId, {
-    status: updated.status,
-    slaDeadline: updated.slaDeadline,
-    filedTo: updated.filedTo,
-    timeline: updated.timeline,
-  });
-
-  await db.insertInboundReply(admin, input.userId, report.id, {
+  // CLAIM THE EMAIL FIRST — before the status change, before the auto-reply,
+  // before anything anyone can see. Everything below this line is a side
+  // effect that must happen exactly once, and the poll route flags a message
+  // \Seen only after all of it completes, so a second poll starting meanwhile
+  // would otherwise replay the lot. It did: one authority reply produced six
+  // identical auto-replies in the citizen's inbox.
+  //
+  // The unique index on provider_message_id decides the race. Losing it is not
+  // an error — it means somebody else is already handling this reply.
+  const claimed = await db.insertInboundReply(admin, input.userId, report.id, {
     at: now(),
     from: input.reply.from,
     subject: input.reply.subject,
     body: input.reply.body,
     kind: classified.kind,
+    providerMessageId: input.inReplyToMessageId,
+  });
+  if (!claimed) {
+    // Already applied. Report it as handled so the caller still marks the
+    // message \Seen — leaving it unread would re-enter this path forever.
+    return {
+      matched: true,
+      duplicate: true,
+      kind: classified.kind,
+      nextStatus: report.status,
+      autoResponded: false,
+    };
+  }
+
+  await db.updateReport(admin, report.id, input.userId, {
+    status: updated.status,
+    slaDeadline: updated.slaDeadline,
+    filedTo: updated.filedTo,
+    timeline: updated.timeline,
   });
 
   // Keep the public Namma Chennai timeline current from real email replies too
