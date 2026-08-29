@@ -152,8 +152,25 @@ instant fallback.
 
 ## Operating it
 
+The box tracks `origin/main`. To ship a change: push to `main`, then
+
 ```bash
-sudo journalctl -u civicagent -f          # logs
-sudo systemctl restart civicagent          # after a config change
-git pull && npm ci && npm run build && sudo systemctl restart civicagent   # deploy
+ssh root@65.20.68.161 civicagent-deploy
 ```
+
+That pulls, installs, builds, restarts and health-checks in one go. It builds
+**before** restarting on purpose — `next build` writes to `.next`, and a failed
+build must leave the running server alone rather than take the site down. If the
+build fails it exits without touching the service.
+
+Everything else:
+
+```bash
+ssh root@65.20.68.161 'journalctl -u civicagent -f'   # app logs
+ssh root@65.20.68.161 'journalctl -u caddy -f'        # TLS / proxy
+ssh root@65.20.68.161 'systemctl restart civicagent'  # after editing .env.local
+ssh root@65.20.68.161 'nano /opt/civicagent/.env.local'  # needs ssh -t
+```
+
+Editing `.env.local` needs a restart but **not** a rebuild — Next reads it at
+runtime.
