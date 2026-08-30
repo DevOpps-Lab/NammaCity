@@ -50,6 +50,14 @@ const { data: existing } = await db
   .from("reports")
   .select("id, user_id, place, category, status, routing")
   .neq("status", "verified_fixed")
+  // NOT a simulated row. /api/escalation/candidates filters is_seed = false,
+  // deliberately, so that generated data can never trigger a real RTI. Without
+  // the same filter here this script happily stages a SIM- report, reports
+  // success, and the workflow then finds nothing due: the two green nodes and
+  // two grey ones look like a broken integration when the staging was the
+  // problem. Only reachable once the real ledger is empty, which is exactly
+  // the state a demo starts from.
+  .eq("is_seed", false)
   .order("created_at", { ascending: false })
   .limit(1)
   .maybeSingle();
