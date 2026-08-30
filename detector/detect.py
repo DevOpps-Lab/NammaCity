@@ -14,11 +14,21 @@ browser would have to download them.
 
 WHAT WAS DELIBERATELY NOT COPIED from the upstream project this came from:
 
-  - Its trapezoidal ROI mask. Blacking out everything off-road scored WORSE than
-    the full frame in every case measured (0/2/1 against 9/7/3) — YOLO is handed
-    an image unlike anything in its training set. The browser detector already
-    learned this the hard way and unions a zoomed crop with the full frame
-    rather than replacing it.
+  - Its trapezoidal ROI MASK. Blacking out off-road pixels to a flat colour
+    hands YOLO an image unlike anything in its training set.
+
+    An earlier version of this comment went further and rejected the whole idea
+    of a region of interest, citing detection counts falling from 9/7/3 to
+    0/2/1. That inference was wrong and is corrected here: without ground truth
+    a count cannot tell a discarded false positive from a discarded pothole, and
+    a drop is exactly what a working precision filter produces. Re-measured, the
+    highway clip's full-frame output included 8 boxes covering more than 15% of
+    the frame — one of them 35.1%, at confidence 0.50 — all on the tree line.
+
+    A CROPPED region of interest does now ship, in the browser
+    (src/lib/roi.ts), where the user can see and aim it. It stays out of this
+    file on purpose: the client crops before uploading, so the wedge has one
+    implementation instead of two that could drift apart.
   - Its incident queue, screenshot writer and JSONL log. The app has a reporting
     pipeline already; a second one would be a competing source of truth.
 
@@ -118,14 +128,25 @@ def nms(boxes: list[dict]) -> list[dict]:
     return kept
 
 
-def run(frame: np.ndarray) -> tuple[list[dict], dict]:
-    """Full frame through every model, unioned. No ROI masking — see the header."""
+def run(frame: np.ndarray, conf: float | None = None) -> tuple[list[dict], dict]:
+    """
+    Every model over whatever image it is handed, unioned.
+
+    `conf` is per-request because the caller owns the precision/recall trade:
+    the UI has a sensitivity slider, and without this the server ran at its own
+    fixed default and the slider silently did nothing whenever the server path
+    was selected. Falls back to CONF_THRESHOLD when absent.
+
+    The frame may already be an ROI crop — the client does that, and the boxes
+    come back in the crop's coordinate space for it to offset. See the header.
+    """
     found: list[dict] = []
     per_model: dict = {}
+    floor = CONF_THRESHOLD if conf is None else min(max(conf, 0.01), 0.95)
 
     for name, model in models.items():
         t0 = time.perf_counter()
-        result = model(frame, conf=CONF_THRESHOLD, imgsz=IMG_SIZE, verbose=False)[0]
+        result = model(frame, conf=floor, imgsz=IMG_SIZE, verbose=False)[0]
         count = 0
         if result.boxes is not None:
             for box in result.boxes:

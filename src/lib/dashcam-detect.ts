@@ -43,6 +43,7 @@
  */
 
 import type { InferenceSession } from "onnxruntime-web";
+import { filterToRoi, roiBounds, type Roi } from "@/lib/roi";
 
 export interface DashcamDetection {
   /** Top-left based, in the same pixel space as the source canvas. */
@@ -68,16 +69,24 @@ const MODEL_URL = "/models/pothole-yolov8n.onnx";
 const NMS_IOU_THRESHOLD = 0.45;
 
 /**
- * Whole frame, deliberately.
+ * Whole frame by default, with an opt-out.
  *
- * An earlier version cropped to the lower 45% as a "road region", on the
- * assumption of a forward-facing dashcam. That assumption is wrong for the
- * footage people actually upload: a close-up video of a damaged surface has the
- * defect anywhere in frame, and the crop threw half of it away — the tab
- * detected nothing at all on exactly the clearest test video. The tree/sky
- * false positives that motivated the crop turned out to be caused by the
- * feedback-loop bug (inference running on an already-annotated canvas) and by a
- * weak model, both of which are now fixed at the source.
+ * An earlier version cropped to the lower 45% unconditionally, and that was
+ * wrong: a close-up video of a damaged surface has the defect anywhere in
+ * frame, and the crop threw half of it away. The whole frame is still the
+ * default for that reason.
+ *
+ * But this comment used to go on to claim the tree/sky false positives "turned
+ * out to be caused by the feedback-loop bug (inference running on an
+ * already-annotated canvas) and by a weak model, both of which are now fixed at
+ * the source." THAT IS NOT TRUE, and a later dry run caught it. Re-measured on
+ * clean frames decoded straight from video — no annotation feedback possible —
+ * the highway clip still produced 8 boxes over 15% of the frame, the largest
+ * 35.1% at confidence 0.50, all sitting on the left tree line. The bug fix was
+ * real; it just was not the whole cause.
+ *
+ * The answer is neither "always crop" nor "never crop": see `roi` in
+ * DetectOptions, which the user aims and can switch off for close-ups.
  *
  * 0.25 is the measured 90%-recall / 7%-false-positive point. Recall is
  * deliberately favoured over precision because a captured frame still has to
@@ -99,6 +108,8 @@ let sessionPromise: Promise<InferenceSession> | null = null;
  * 640x640 canvas would churn the GC at 4 inferences/second.
  */
 let scratch: HTMLCanvasElement | null = null;
+/** Holds the ROI crop for the remote path — see cropTo(). */
+let cropScratch: HTMLCanvasElement | null = null;
 let scratchCtx: CanvasRenderingContext2D | null = null;
 let inputBuffer: Float32Array | null = null;
 
@@ -354,6 +365,14 @@ const ZOOM_MIN_ASPECT = 1.2;
 export interface DetectOptions {
   /** Confidence floor. Defaults to CONF_THRESHOLD; the UI slider overrides it. */
   threshold?: number;
+  /**
+   * Road-ahead trapezoid. When set it REPLACES the passes below rather than
+   * adding to them — the point is to stop looking at the tree line, and a
+   * whole-frame pass unioned in would put every tree box straight back. Null
+   * (the default) keeps the original two-pass behaviour exactly, which is what
+   * close-up footage needs.
+   */
+  roi?: Roi | null;
 }
 
 /**
@@ -361,24 +380,35 @@ export interface DetectOptions {
  * pixel space. Returns [] rather than throwing, so a transient failure never
  * kills the caller's scan loop.
  *
- * TWO PASSES, unioned: the whole frame plus a zoomed road-ahead crop. The
- * passes are additive by design — an earlier version *replaced* whole-frame
- * inference with a crop, which silently broke close-up videos (the defect sat
- * in the discarded region). Adding a pass can only find more.
+ * WITHOUT AN ROI — two passes, unioned: the whole frame plus a zoomed
+ * road-ahead crop. Additive by design; an earlier version *replaced*
+ * whole-frame inference with a fixed crop and silently broke close-up videos,
+ * where the defect sat in the discarded region.
+ *
+ * WITH AN ROI — one pass over the trapezoid's bounding rect, then a filter
+ * dropping boxes whose centre lands outside the trapezoid itself. This is a
+ * replacement, and that is the user's explicit choice made visible: the wedge
+ * is drawn on the canvas, so what they see is exactly what the model sees.
+ * Cropping also raises the road's share of the 640px input, so the ROI pass
+ * inherits the zoom pass's resolution advantage for free.
  */
 export async function detectPotholes(
   source: HTMLCanvasElement,
-  { threshold = CONF_THRESHOLD }: DetectOptions = {}
+  { threshold = CONF_THRESHOLD, roi = null }: DetectOptions = {}
 ): Promise<DashcamDetection[]> {
   if (!source.width || !source.height) return [];
   try {
     const session = await loadDetector();
     const ort = await import("onnxruntime-web");
 
-    const rects: SourceRect[] = [
-      { sx: 0, sy: 0, sw: source.width, sh: source.height },
-    ];
-    if (source.width >= ZOOM_MIN_WIDTH && source.width / source.height >= ZOOM_MIN_ASPECT) {
+    const rects: SourceRect[] = roi
+      ? [roiBounds(roi, source.width, source.height)]
+      : [{ sx: 0, sy: 0, sw: source.width, sh: source.height }];
+    if (
+      !roi &&
+      source.width >= ZOOM_MIN_WIDTH &&
+      source.width / source.height >= ZOOM_MIN_ASPECT
+    ) {
       const sx = Math.round(source.width * ZOOM_RECT.left);
       const sy = Math.round(source.height * ZOOM_RECT.top);
       rects.push({
@@ -404,7 +434,12 @@ export async function detectPotholes(
 
     // One suppression across the union — the same pothole seen by both passes
     // must collapse to a single box, keeping the higher-scoring one.
-    return nms(found);
+    //
+    // The ROI filter runs last, on the suppressed set. The rect handed to the
+    // model is a rectangle and the ROI is a trapezoid, so its top corners were
+    // still analysed — and on wide footage those corners are precisely where
+    // the roadside trees are.
+    return filterToRoi(roi, source.width, source.height, nms(found));
   } catch (err) {
     console.warn("[dashcam-detect] inference failed:", err);
     return [];
@@ -430,18 +465,29 @@ export async function detectPotholes(
  * restarted would be worse than the one that existed before it.
  */
 export async function detectPotholesRemote(
-  source: HTMLCanvasElement
+  source: HTMLCanvasElement,
+  { threshold = CONF_THRESHOLD, roi = null }: DetectOptions = {}
 ): Promise<DashcamDetection[] | null> {
   if (!source.width || !source.height) return null;
 
   try {
+    // With an ROI, only the crop is uploaded. Cheaper on mobile data than the
+    // whole frame, and it keeps the ROI a single implementation living here
+    // rather than a second one in Python that could drift from this one.
+    const rect = roi ? roiBounds(roi, source.width, source.height) : null;
+    const sent = rect ? cropTo(source, rect) : source;
+    if (!sent) return null;
+
     const blob = await new Promise<Blob | null>((resolve) =>
-      source.toBlob(resolve, "image/jpeg", 0.8)
+      sent.toBlob(resolve, "image/jpeg", 0.8)
     );
     if (!blob) return null;
 
     const form = new FormData();
     form.append("frame", blob, "frame.jpg");
+    // The server otherwise runs at its own fixed default and the sensitivity
+    // slider silently does nothing whenever this path is selected.
+    form.append("conf", String(threshold));
 
     const res = await fetch("/api/dashcam/detect", { method: "POST", body: form });
     // 503 is the sidecar being down, which is expected and not an error worth
@@ -451,12 +497,36 @@ export async function detectPotholesRemote(
     const body = (await res.json()) as { available?: boolean; detections?: DashcamDetection[] };
     if (!body.available || !Array.isArray(body.detections)) return null;
 
-    // Boxes come back in source-image pixel space already, so unlike the local
-    // path there is no letterbox to undo.
-    return body.detections;
+    // Boxes come back in the pixel space of the image we POSTed. Without an ROI
+    // that is already the source canvas and there is nothing to undo; with one,
+    // the crop origin has to be added back — the same correction the local path
+    // makes via `lb.sx`/`lb.sy` in decode().
+    const mapped = rect
+      ? body.detections.map((d) => ({ ...d, x: d.x + rect.sx, y: d.y + rect.sy }))
+      : body.detections;
+
+    return filterToRoi(roi, source.width, source.height, mapped);
   } catch {
     return null;
   }
+}
+
+/**
+ * Copies a sub-rect into a reusable scratch canvas.
+ *
+ * Separate from `scratch` above, which holds the 640x640 tensor letterbox and
+ * would be clobbered mid-flight — both are in play during a single remote
+ * frame. Reused rather than allocated per frame: this runs several times a
+ * second for the length of a clip.
+ */
+function cropTo(source: HTMLCanvasElement, rect: SourceRect): HTMLCanvasElement | null {
+  if (!cropScratch) cropScratch = document.createElement("canvas");
+  if (cropScratch.width !== rect.sw) cropScratch.width = rect.sw;
+  if (cropScratch.height !== rect.sh) cropScratch.height = rect.sh;
+  const ctx = cropScratch.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(source, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, rect.sw, rect.sh);
+  return cropScratch;
 }
 
 /** Whether the sidecar is up, so the UI can avoid offering a dead option. */

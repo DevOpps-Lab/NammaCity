@@ -42,6 +42,15 @@ import {
   type DashcamDetection,
   type DetectorProgress,
 } from "@/lib/dashcam-detect";
+import {
+  DEFAULT_ROI,
+  ROI_HORIZON_MAX,
+  ROI_HORIZON_MIN,
+  ROI_TOP_MAX,
+  ROI_TOP_MIN,
+  roiCorners,
+  type Roi,
+} from "@/lib/roi";
 
 interface DraftFrame {
   id: string;
@@ -114,6 +123,15 @@ export default function DashcamTab({
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [sensitivity, setSensitivity] = useState(CONF_THRESHOLD);
   /**
+   * The road-ahead trapezoid. ON by default because the failure it fixes is the
+   * one people actually hit — a dry run flagged the roadside tree line as
+   * potholes, with boxes covering a third of the frame. Off is one click, and
+   * close-up footage needs it: a clip shot standing over a pothole has no
+   * horizon, so a road wedge would discard the subject.
+   */
+  const [roiOn, setRoiOn] = useState(true);
+  const [roi, setRoi] = useState<Roi>(DEFAULT_ROI);
+  /**
    * The server-side ensemble, when the sidecar is running. Off unless it is
    * both available and chosen: it uploads a JPEG per frame, which is a real
    * cost on mobile data and not one to impose by default.
@@ -157,10 +175,21 @@ export default function DashcamTab({
   const runIdRef = useRef(0);
   /** Read inside the loop so the slider takes effect on the next frame. */
   const sensitivityRef = useRef(sensitivity);
+  /**
+   * Same mirror-ref treatment for the ROI. runScan's dependency array is
+   * deliberately narrow so the callback stays stable for the length of a clip;
+   * reading this state directly would rebuild it and abandon the scan every
+   * time the slider moved.
+   */
+  const roiRef = useRef<Roi | null>(roiOn ? roi : null);
 
   useEffect(() => {
     sensitivityRef.current = sensitivity;
   }, [sensitivity]);
+
+  useEffect(() => {
+    roiRef.current = roiOn ? roi : null;
+  }, [roiOn, roi]);
 
   // Doesn't reset state itself — called once on mount (defaults are already
   // "loading"/null) and from the Retry button (which resets state itself,
@@ -197,6 +226,43 @@ export default function DashcamTab({
     return () => {
       runId.current++;
     };
+  }, []);
+
+  /**
+   * Dims everything the model is not looking at and outlines the wedge.
+   *
+   * Worth the pixels: with the ROI on, anything outside this shape cannot be
+   * detected, and a detector that silently ignores most of the frame is a
+   * support problem. Showing it turns "why did it miss that" into an answer.
+   *
+   * Drawn on the VISIBLE canvas only. Painting it onto the clean frame would
+   * feed the outline back into the next inference and burn it into the photo a
+   * report is filed with — see the comment on frameRef.
+   */
+  const drawRoi = useCallback((ctx: CanvasRenderingContext2D, area: Roi | null) => {
+    if (!area) return;
+    const { width: w, height: h } = ctx.canvas;
+    const corners = roiCorners(area, w, h);
+
+    ctx.save();
+    // Even-odd against a full-frame rect punches the trapezoid out of the dim.
+    ctx.beginPath();
+    ctx.rect(0, 0, w, h);
+    ctx.moveTo(corners[0][0], corners[0][1]);
+    for (const [x, y] of corners.slice(1)) ctx.lineTo(x, y);
+    ctx.closePath();
+    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    ctx.fill("evenodd");
+
+    ctx.beginPath();
+    ctx.moveTo(corners[0][0], corners[0][1]);
+    for (const [x, y] of corners.slice(1)) ctx.lineTo(x, y);
+    ctx.closePath();
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    ctx.lineWidth = Math.max(1.5, w / 480);
+    ctx.setLineDash([w / 80, w / 120]);
+    ctx.stroke();
+    ctx.restore();
   }, []);
 
   const drawBoxes = useCallback((ctx: CanvasRenderingContext2D, boxes: DashcamDetection[]) => {
@@ -278,19 +344,29 @@ export default function DashcamTab({
       // Remote first when asked for, local otherwise — and local ALSO when the
       // sidecar returns null, which it does for every failure. A scan must not
       // die because a Python service restarted mid-video.
+      // Both paths get the same ROI, so switching detectors mid-clip cannot
+      // change which part of the road is under examination.
+      const area = roiRef.current;
       let detections: DashcamDetection[] | null = null;
       if (useRemoteRef.current) {
-        detections = await detectPotholesRemote(clean);
+        detections = await detectPotholesRemote(clean, {
+          threshold: sensitivityRef.current,
+          roi: area,
+        });
         if (detections === null) setRemoteFellBack(true);
       }
       if (detections === null) {
-        detections = await detectPotholes(clean, { threshold: sensitivityRef.current });
+        detections = await detectPotholes(clean, {
+          threshold: sensitivityRef.current,
+          roi: area,
+        });
       }
       if (aborted()) return;
 
       // Draw the frame we just analysed, with its own boxes — never a previous
       // frame's, which is what made the old real-time overlay look misaligned.
       ctx.drawImage(clean, 0, 0);
+      drawRoi(ctx, area);
       drawBoxes(ctx, detections);
 
       const best = detections.reduce<DashcamDetection | null>(
@@ -310,7 +386,7 @@ export default function DashcamTab({
     if (aborted()) return;
     setScanning(false);
     setScanDone(true);
-  }, [captureFrame, drawBoxes]);
+  }, [captureFrame, drawBoxes, drawRoi]);
 
   const onPickVideo = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -548,6 +624,69 @@ export default function DashcamTab({
             className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-150"
             style={{ width: `${pct}%` }}
           />
+        </div>
+      )}
+
+      {/* The road area is adjustable rather than fixed because the right wedge
+          depends on how the camera is mounted — height, tilt and lens all move
+          the horizon. Swept across three clips, no single trapezoid was best
+          for all of them, so a hardcoded one would be wrong for some mountings
+          with no way to correct it. */}
+      <label className="mt-4 flex items-start gap-2.5 rounded-xl border border-[var(--border)] p-3">
+        <input
+          type="checkbox"
+          checked={roiOn}
+          onChange={(e) => setRoiOn(e.target.checked)}
+          className="mt-0.5 accent-[var(--accent)]"
+        />
+        <span className="text-[11px] leading-relaxed">
+          <span className="font-medium">Look at the road only</span>
+          <span className="mt-0.5 block text-[var(--text-faint)]">
+            Analyses just the shaded wedge ahead of the car. Roadside trees and shadows are the
+            main source of wrong boxes, and they sit outside it. Turn this off for close-up clips
+            filmed standing over a pothole — those have no horizon, so the wedge would cut out the
+            subject.
+          </span>
+        </span>
+      </label>
+
+      {roiOn && (
+        <div className="mt-2 grid gap-3 rounded-xl border border-[var(--border)] p-3">
+          <label className="block">
+            <span className="flex items-baseline justify-between text-[11px] text-[var(--text-dim)]">
+              <span className="font-medium">Horizon</span>
+              <span className="text-[var(--text-faint)]">
+                {Math.round(roi.horizon * 100)}% down the frame
+              </span>
+            </span>
+            <input
+              type="range"
+              min={ROI_HORIZON_MIN}
+              max={ROI_HORIZON_MAX}
+              step={0.05}
+              value={roi.horizon}
+              onChange={(e) => setRoi((r) => ({ ...r, horizon: Number(e.target.value) }))}
+              className="mt-1.5 w-full accent-[var(--accent)]"
+            />
+          </label>
+          <label className="block">
+            <span className="flex items-baseline justify-between text-[11px] text-[var(--text-dim)]">
+              <span className="font-medium">Width at the horizon</span>
+              <span className="text-[var(--text-faint)]">{Math.round(roi.topHalf * 200)}%</span>
+            </span>
+            <input
+              type="range"
+              min={ROI_TOP_MIN}
+              max={ROI_TOP_MAX}
+              step={0.02}
+              value={roi.topHalf}
+              onChange={(e) => setRoi((r) => ({ ...r, topHalf: Number(e.target.value) }))}
+              className="mt-1.5 w-full accent-[var(--accent)]"
+            />
+            <span className="mt-1 block text-[10px] leading-relaxed text-[var(--text-faint)]">
+              Takes effect on the next frame — adjust mid-scan and watch the shaded area move.
+            </span>
+          </label>
         </div>
       )}
 

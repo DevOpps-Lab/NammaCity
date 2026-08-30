@@ -41,10 +41,18 @@ export interface DashcamDetectResponse {
 
 export async function POST(req: Request) {
   let frame: File | null = null;
+  let conf: string | null = null;
   try {
     const form = await req.formData();
     const value = form.get("frame");
     if (value instanceof File) frame = value;
+    const c = form.get("conf");
+    // Validated rather than forwarded blind: this reaches a model's confidence
+    // floor, and NaN or a negative would come back as every anchor in the grid.
+    if (typeof c === "string") {
+      const n = Number(c);
+      if (Number.isFinite(n) && n > 0 && n < 1) conf = String(n);
+    }
   } catch {
     return NextResponse.json({ error: "Expected multipart form data" }, { status: 400 });
   }
@@ -57,6 +65,7 @@ export async function POST(req: Request) {
 
   const upstream = new FormData();
   upstream.append("frame", frame, "frame.jpg");
+  if (conf) upstream.append("conf", conf);
 
   try {
     const res = await fetch(`${SIDECAR}/infer`, {

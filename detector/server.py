@@ -12,7 +12,7 @@ import time
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import JSONResponse
 
 from detect import CONF_THRESHOLD, IMG_SIZE, models, run
@@ -37,7 +37,7 @@ async def health():
 
 
 @app.post("/infer")
-async def infer(frame: UploadFile = File(...)):
+async def infer(frame: UploadFile = File(...), conf: float | None = Form(None)):
     raw = await frame.read()
     if not raw:
         return JSONResponse({"error": "empty frame"}, status_code=400)
@@ -47,7 +47,7 @@ async def infer(frame: UploadFile = File(...)):
         return JSONResponse({"error": "not a decodable image"}, status_code=415)
 
     t0 = time.perf_counter()
-    detections, per_model = run(img)
+    detections, per_model = run(img, conf)
     return {
         "detections": detections,
         "count": len(detections),
@@ -55,6 +55,7 @@ async def infer(frame: UploadFile = File(...)):
         "width": img.shape[1],
         "height": img.shape[0],
         "perModel": per_model,
+        "conf": CONF_THRESHOLD if conf is None else conf,
     }
 
 

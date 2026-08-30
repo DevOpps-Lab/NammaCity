@@ -12,7 +12,8 @@
     "verify:rls": "node scripts/verify-rls.mjs",
     "demo:whatsapp": "node scripts/demo-whatsapp.mjs",
     "demo:ladder": "node scripts/demo-ladder.mjs",
-    "verify:detector": "node scripts/verify-detector.mjs"
+    "verify:detector": "node scripts/verify-detector.mjs",
+    "verify:roi": "npx tsx scripts/verify-roi.ts"
   },
   "dependencies": {
     "@atproto/api": "^0.20.31",

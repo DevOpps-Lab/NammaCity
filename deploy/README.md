@@ -142,6 +142,29 @@ Flask app there, so the unit sets `DETECTOR_PORT=8002` and setup appends a
 matching `DETECTOR_URL` to `.env.local`. If those two ever disagree the app
 proxies to whatever else is listening — `verify:detector` checks the pair.
 
+### The road ROI
+
+The Dashcam tab analyses only a trapezoid of road ahead, on by default. A dry
+run flagged roadside trees as potholes; on the snowy-highway clip 9 of 11
+detections covered more than 15% of the frame, the largest 35.1% at confidence
+0.50, all on the tree line. Restricting inference to the wedge takes that to 0.
+
+It is not free. Same clips, both models, 14 frames each:
+
+| clip | ROI off | ROI on |
+|---|---|---|
+| snowy highway | 11 boxes, 9 oversized | **0** |
+| road | 9, none oversized | 5 |
+| close-up | 14 | 7 |
+
+The close-up clip has no horizon — the pothole fills the frame — so the wedge
+discards the subject. **Untick "Look at the road only" for handheld footage.**
+That opt-out restores the previous whole-frame behaviour exactly, which
+`npm run verify:roi` asserts.
+
+The client crops before uploading, so the sidecar never needs ROI code and the
+wedge has one implementation rather than two that could drift.
+
 Measured on this instance: **~150 ms per frame** for both models, after a
 warmup at startup that keeps the first frame off the 2.1 s torch-init cost.
 
