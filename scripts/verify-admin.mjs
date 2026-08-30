@@ -86,7 +86,12 @@ check(
 // The generator must never write a real-looking row.
 const gen = readFileSync("scripts/seed-city.mjs", "utf8");
 check(/is_seed: true/.test(gen) && !/is_seed: false/.test(gen), "the generator only ever writes is_seed: true");
-check(!/next_report_id/.test(gen), "the generator never draws from the shared report id sequence");
+// An actual call, not a mention: the script's own header explains at length
+// that it does NOT use this, and matching prose would fail on the explanation.
+check(
+  !/rpc\(\s*["'`]next_report_id/.test(gen),
+  "the generator never draws from the shared report id sequence"
+);
 check(/inserted_at:/.test(gen), "the generator writes inserted_at explicitly");
 
 // -------------------------------------------------------------------- live
@@ -102,8 +107,15 @@ for (const path of ["/admin"]) {
 // The anon key is in the client bundle, so this is the cheapest attack surface:
 // call the analytics functions with no session at all.
 const env = readFileSync(".env.local", "utf8");
-const supaUrl = env.match(/NEXT_PUBLIC_SUPABASE_URL=(.+)/)?.[1]?.trim();
-const anonKey = env.match(/NEXT_PUBLIC_SUPABASE_ANON_KEY=(.+)/)?.[1]?.trim();
+/** Values in .env.local may be quoted; a quoted URL produces a curl that never connects. */
+const envVar = (name) =>
+  env
+    .match(new RegExp(`^${name}=(.+)$`, "m"))?.[1]
+    ?.trim()
+    .replace(/^["']|["']$/g, "");
+
+const supaUrl = envVar("NEXT_PUBLIC_SUPABASE_URL");
+const anonKey = envVar("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
 if (supaUrl && anonKey) {
   const fns = [
@@ -147,7 +159,7 @@ if (supaUrl && anonKey) {
 // --------------------------------------------------------------- isolation
 console.log("\nSimulated data containment");
 
-const serviceKey = env.match(/SUPABASE_SERVICE_ROLE_KEY=(.+)/)?.[1]?.trim();
+const serviceKey = envVar("SUPABASE_SERVICE_ROLE_KEY");
 if (supaUrl && serviceKey) {
   const q = (path) => {
     const { body } = httpCode([
