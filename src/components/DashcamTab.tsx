@@ -102,6 +102,20 @@ interface ScanProgress {
   etaMs: number | null;
 }
 
+/**
+ * The scan controls share one shape so they read as a set rather than as
+ * features bolted on at different times.
+ *
+ * Named here instead of repeated inline because the design system locks radius
+ * to three steps and type to a 12px floor — values easy to drift from when the
+ * next control is added. `--radius-card` and `t-sm`/`t-micro` are the shared
+ * vocabulary from globals.css; nothing here invents a size.
+ */
+const CONTROL_CARD =
+  "rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] p-3.5 shadow-[var(--shadow-1)]";
+const CONTROL_HINT = "mt-1.5 block text-[12px] leading-relaxed text-[var(--text-faint)]";
+const CONTROL_RANGE = "mt-2 w-full accent-[var(--accent)]";
+
 export default function DashcamTab({
   onOpenReport,
 }: {
@@ -251,14 +265,20 @@ export default function DashcamTab({
     ctx.moveTo(corners[0][0], corners[0][1]);
     for (const [x, y] of corners.slice(1)) ctx.lineTo(x, y);
     ctx.closePath();
-    ctx.fillStyle = "rgba(0,0,0,0.45)";
+    // Matches --scrim from globals.css. Canvas cannot read CSS custom
+    // properties, so the value is duplicated here rather than derived — the
+    // same reason drawBoxes carries the accent green as a literal.
+    ctx.fillStyle = "rgba(0,0,0,0.62)";
     ctx.fill("evenodd");
 
     ctx.beginPath();
     ctx.moveTo(corners[0][0], corners[0][1]);
     for (const [x, y] of corners.slice(1)) ctx.lineTo(x, y);
     ctx.closePath();
-    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    // --accent amber, deliberately NOT the --success green drawBoxes uses: the
+    // wedge is a control the user aims, and a detection is a finding. Sharing a
+    // colour would read as "the ROI is a very large pothole".
+    ctx.strokeStyle = "rgba(240,181,46,0.9)";
     ctx.lineWidth = Math.max(1.5, w / 480);
     ctx.setLineDash([w / 80, w / 120]);
     ctx.stroke();
@@ -632,73 +652,80 @@ export default function DashcamTab({
           the horizon. Swept across three clips, no single trapezoid was best
           for all of them, so a hardcoded one would be wrong for some mountings
           with no way to correct it. */}
-      <label className="mt-4 flex items-start gap-2.5 rounded-xl border border-[var(--border)] p-3">
-        <input
-          type="checkbox"
-          checked={roiOn}
-          onChange={(e) => setRoiOn(e.target.checked)}
-          className="mt-0.5 accent-[var(--accent)]"
-        />
-        <span className="text-[11px] leading-relaxed">
-          <span className="font-medium">Look at the road only</span>
-          <span className="mt-0.5 block text-[var(--text-faint)]">
-            Analyses just the shaded wedge ahead of the car. Roadside trees and shadows are the
-            main source of wrong boxes, and they sit outside it. Turn this off for close-up clips
-            filmed standing over a pothole — those have no horizon, so the wedge would cut out the
-            subject.
+      <div className={CONTROL_CARD + " mt-4"}>
+        <label className="flex items-start gap-2.5">
+          <input
+            type="checkbox"
+            checked={roiOn}
+            onChange={(e) => setRoiOn(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--accent)]"
+          />
+          <span>
+            <span className="t-sm block font-semibold">Look at the road only</span>
+            <span className={CONTROL_HINT}>
+              Analyses just the shaded wedge ahead of the car. Roadside trees and shadows are the
+              main source of wrong boxes, and they sit outside it. Turn this off for close-up clips
+              filmed standing over a pothole — those have no horizon, so the wedge would cut out the
+              subject.
+            </span>
           </span>
-        </span>
-      </label>
+        </label>
 
-      {roiOn && (
-        <div className="mt-2 grid gap-3 rounded-xl border border-[var(--border)] p-3">
-          <label className="block">
-            <span className="flex items-baseline justify-between text-[11px] text-[var(--text-dim)]">
-              <span className="font-medium">Horizon</span>
-              <span className="text-[var(--text-faint)]">
-                {Math.round(roi.horizon * 100)}% down the frame
+        {/* Nested inside the same card rather than beside it: these only mean
+            anything while the box above is ticked, and a separate card would
+            imply a setting that stands on its own. */}
+        {roiOn && (
+          <div className="mt-3.5 grid gap-3.5 border-t border-[var(--border)] pt-3.5">
+            <label className="block">
+              <span className="flex items-baseline justify-between gap-3">
+                <span className="t-micro leading-none">Horizon</span>
+                <span className="tnum text-[12px] text-[var(--text-dim)]">
+                  {Math.round(roi.horizon * 100)}% down the frame
+                </span>
               </span>
-            </span>
-            <input
-              type="range"
-              min={ROI_HORIZON_MIN}
-              max={ROI_HORIZON_MAX}
-              step={0.05}
-              value={roi.horizon}
-              onChange={(e) => setRoi((r) => ({ ...r, horizon: Number(e.target.value) }))}
-              className="mt-1.5 w-full accent-[var(--accent)]"
-            />
-          </label>
-          <label className="block">
-            <span className="flex items-baseline justify-between text-[11px] text-[var(--text-dim)]">
-              <span className="font-medium">Width at the horizon</span>
-              <span className="text-[var(--text-faint)]">{Math.round(roi.topHalf * 200)}%</span>
-            </span>
-            <input
-              type="range"
-              min={ROI_TOP_MIN}
-              max={ROI_TOP_MAX}
-              step={0.02}
-              value={roi.topHalf}
-              onChange={(e) => setRoi((r) => ({ ...r, topHalf: Number(e.target.value) }))}
-              className="mt-1.5 w-full accent-[var(--accent)]"
-            />
-            <span className="mt-1 block text-[10px] leading-relaxed text-[var(--text-faint)]">
+              <input
+                type="range"
+                min={ROI_HORIZON_MIN}
+                max={ROI_HORIZON_MAX}
+                step={0.05}
+                value={roi.horizon}
+                onChange={(e) => setRoi((r) => ({ ...r, horizon: Number(e.target.value) }))}
+                className={CONTROL_RANGE}
+              />
+            </label>
+            <label className="block">
+              <span className="flex items-baseline justify-between gap-3">
+                <span className="t-micro leading-none">Width at the horizon</span>
+                <span className="tnum text-[12px] text-[var(--text-dim)]">
+                  {Math.round(roi.topHalf * 200)}%
+                </span>
+              </span>
+              <input
+                type="range"
+                min={ROI_TOP_MIN}
+                max={ROI_TOP_MAX}
+                step={0.02}
+                value={roi.topHalf}
+                onChange={(e) => setRoi((r) => ({ ...r, topHalf: Number(e.target.value) }))}
+                className={CONTROL_RANGE}
+              />
+            </label>
+            <p className={CONTROL_HINT}>
               Takes effect on the next frame — adjust mid-scan and watch the shaded area move.
-            </span>
-          </label>
-        </div>
-      )}
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* Sensitivity is exposed because the right value is footage-dependent:
           a distant pothole in wide footage scores far lower than a close-up
           one, and a captured frame still faces Gemini classification and human
           confirmation downstream, so leaning toward recall is cheap. */}
-      <label className="mt-4 block">
-        <span className="flex items-baseline justify-between text-[11px] text-[var(--text-dim)]">
-          <span className="font-medium">Sensitivity</span>
-          <span className="text-[var(--text-faint)]">
-            {Math.round(sensitivity * 100)}% · {sensitivity <= 0.22 ? "catches more, more false alarms" : sensitivity >= 0.45 ? "stricter, may miss some" : "balanced"}
+      <label className={CONTROL_CARD + " mt-3 block"}>
+        <span className="flex items-baseline justify-between gap-3">
+          <span className="t-micro leading-none">Sensitivity</span>
+          <span className="tnum text-[12px] text-[var(--text-dim)]">
+            {Math.round(sensitivity * 100)}%
           </span>
         </span>
         <input
@@ -708,9 +735,14 @@ export default function DashcamTab({
           step={0.05}
           value={sensitivity}
           onChange={(e) => setSensitivity(Number(e.target.value))}
-          className="mt-1.5 w-full accent-[var(--accent)]"
+          className={CONTROL_RANGE}
         />
-        <span className="mt-1 block text-[10px] leading-relaxed text-[var(--text-faint)]">
+        <span className={CONTROL_HINT}>
+          {sensitivity <= 0.22
+            ? "Catches more, with more false alarms."
+            : sensitivity >= 0.45
+              ? "Stricter — may miss some."
+              : "Balanced."}{" "}
           Takes effect on the next frame — adjust mid-scan, or Rescan to redo the clip.
         </span>
       </label>
@@ -718,7 +750,7 @@ export default function DashcamTab({
       {/* Only offered when the sidecar answers. An option that silently does
           nothing is worse than no option. */}
       {remoteAvailable && (
-        <label className="mt-3 flex items-start gap-2.5 rounded-xl border border-[var(--border)] p-3">
+        <label className={CONTROL_CARD + " mt-3 flex items-start gap-2.5"}>
           <input
             type="checkbox"
             checked={useRemote}
@@ -726,17 +758,17 @@ export default function DashcamTab({
               setUseRemote(e.target.checked);
               setRemoteFellBack(false);
             }}
-            className="mt-0.5 accent-[var(--accent)]"
+            className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--accent)]"
           />
-          <span className="text-[11px] leading-relaxed">
-            <span className="font-medium">Higher accuracy (server)</span>
-            <span className="mt-0.5 block text-[var(--text-faint)]">
+          <span>
+            <span className="t-sm block font-semibold">Higher accuracy (server)</span>
+            <span className={CONTROL_HINT}>
               Runs {remoteModels.length || 2} detection models and merges the results. The two
               disagree usefully — one is better on phone footage, the other on wide dashcam
               video. Uploads one image per frame, so it uses mobile data.
             </span>
             {remoteFellBack && (
-              <span className="mt-1 block text-[var(--warning)]">
+              <span className="mt-1.5 block text-[12px] leading-relaxed text-[var(--warning)]">
                 The server didn&apos;t answer for at least one frame — those were scanned on
                 your device instead.
               </span>
