@@ -70,7 +70,7 @@ export async function sendMail(input: SendInput): Promise<SendResult> {
   }
 
   const info = await getTransport().sendMail({
-    from: `CivicAgent <${process.env.GMAIL_USER!}>`,
+    from: `NammaCity <${process.env.GMAIL_USER!}>`,
     to: input.to,
     subject: input.subject,
     text: input.text,

@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useMemo, useState } from "react";
+import { DEMO_SOCIAL_HANDLE } from "@/lib/authorities";
 import type { Report } from "@/lib/types";
 import { composePost } from "@/lib/escalation";
 import Icon from "./Icon";
@@ -113,7 +114,7 @@ export default function EscalationPanel({
               setPublished(true);
               onPublish(report.id, post.text);
               onTrace(
-                `Published to @CivicAgent · ${report.id} · sandboxed demo account`,
+                `Published to ${DEMO_SOCIAL_HANDLE} · ${report.id} · sandboxed demo account`,
                 "ok"
               );
               setTimeout(onClose, 900);

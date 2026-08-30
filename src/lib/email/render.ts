@@ -31,7 +31,7 @@ export function rtiTextToHtml(subject: string, body: string): string {
   return render(subject, body, {
     subtitle: "Application under the Right to Information Act, 2005",
     footer:
-      "Sent via CivicAgent on behalf of a resident. The RTI Act 2005 provides for a reply within 30 days. This application concerns the status of a civic complaint tracked on a public ledger.",
+      "Sent via NammaCity on behalf of a resident. The RTI Act 2005 provides for a reply within 30 days. This application concerns the status of a civic complaint tracked on a public ledger.",
   });
 }
 
@@ -44,7 +44,7 @@ export function complaintTextToHtml(
     photoCid,
     subtitle: "Citizen-verified civic complaint",
     footer:
-      "Sent via CivicAgent · This complaint is tracked publicly and will be marked resolved only when a resident confirms the repair with a photograph — not on a status update alone.",
+      "Sent via NammaCity · This complaint is tracked publicly and will be marked resolved only when a resident confirms the repair with a photograph — not on a status update alone.",
   });
 }
 
@@ -134,7 +134,7 @@ function render(
 <html><body style="margin:0;padding:0;background:#f1f5f9">
 <div style="max-width:600px;margin:0 auto;padding:24px 16px">
   <div style="background:#0f766e;border-radius:12px 12px 0 0;padding:16px 20px">
-    <div style="color:#ffffff;font-size:16px;font-weight:700;letter-spacing:-0.01em">CivicAgent</div>
+    <div style="color:#ffffff;font-size:16px;font-weight:700;letter-spacing:-0.01em">NammaCity</div>
     <div style="color:#99f6e4;font-size:12px;margin-top:2px">${esc(subtitle)}</div>
   </div>
   <div style="background:#ffffff;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 12px 12px;padding:22px 20px">

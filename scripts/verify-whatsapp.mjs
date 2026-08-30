@@ -318,7 +318,7 @@ if (filedToken) {
   check(good.status === 200, `renders unauthenticated (${good.status})`);
   const html = await good.text();
   check(!/\/login/.test(new URL(good.url).pathname), "was not redirected to /login");
-  check(/CivicAgent/.test(html), "page rendered content");
+  check(/NammaCity/.test(html), "page rendered content");
 
   const bogus = await fetch(`${BASE}/track/00000000-0000-0000-0000-000000000000`, {
     redirect: "manual",

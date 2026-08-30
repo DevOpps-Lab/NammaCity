@@ -103,7 +103,7 @@ export async function findIntakeUserId(admin: SupabaseClient): Promise<string | 
 
 // ------------------------------------------------------------------ replies
 
-export const GREETING = `CivicAgent — report a civic problem in one message.
+export const GREETING = `NammaCity — report a civic problem in one message.
 
 1. Send a *photo* of the problem (pothole, garbage, sewage, streetlight, drain).
 2. Then share your *location*: tap the 📎 attach button → Location → Send your current location.

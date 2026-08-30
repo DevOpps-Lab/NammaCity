@@ -19,6 +19,19 @@ import type { Authority, IssueCategory } from "./types";
 /** All outbound mail goes here. No unsolicited automated mail to real .gov.in addresses. */
 export const DEMO_SINK = process.env.DEMO_INBOX ?? "demo-inbox@civicagent.local";
 
+/**
+ * The account public escalations are actually posted from.
+ *
+ * The same principle as DEMO_SINK, applied to social: the UI must name the
+ * account that really posted, not a plausible-looking one. It used to read
+ * "@CivicAgent" and "@CivicAgentDemo" — neither of which has ever existed — so
+ * the Outbox was showing an audit trail to an account nobody could check.
+ *
+ * Must match BLUESKY_IDENTIFIER. Declared here rather than read from the
+ * environment because the components that display it render on the client.
+ */
+export const DEMO_SOCIAL_HANDLE = "@nammachennai";
+
 export interface AuthorityRecord extends Authority {
   /** true only where the address was confirmed from a primary source. */
   verified: boolean;

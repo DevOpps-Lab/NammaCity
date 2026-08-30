@@ -1,6 +1,6 @@
 import type { Report } from "./types";
 import type { AuthorityRecord } from "./authorities";
-import { DEMO_SINK } from "./authorities";
+import { DEMO_SINK, DEMO_SOCIAL_HANDLE } from "./authorities";
 import { now } from "./demoClock";
 
 /**
@@ -173,7 +173,7 @@ export function composePostItem(report: Report, text: string): OutboxItem {
     kind: "post",
     at: now(),
     intendedTo: "@chennaicorp (real handle — NOT tagged in demo)",
-    actuallyTo: "@CivicAgentDemo",
+    actuallyTo: DEMO_SOCIAL_HANDLE,
     subject: `Public escalation — ${report.id}`,
     body: text,
     reportId: report.id,
