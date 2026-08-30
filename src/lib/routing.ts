@@ -170,7 +170,7 @@ export async function resolveAuthority(
     return {
       tier: 1,
       confidence: "high",
-      method: `Ward polygon match — GCC open ward dataset (${t1.zoneName}, Zone ${t1.zoneNo})`,
+      method: `Ward polygon match, GCC open ward dataset (${t1.zoneName}, Zone ${t1.zoneNo})`,
       ward: t1.ward,
       zoneName: t1.zoneName,
       zoneNo: t1.zoneNo,
@@ -189,17 +189,17 @@ export async function resolveAuthority(
         tier: 2,
         confidence: t2.isWard ? "medium" : "low",
         method: t2.wardNo
-          ? `OSM ward boundary — Ward ${t2.wardNo}, ${where}`
+          ? `OSM ward boundary, Ward ${t2.wardNo}, ${where}`
           : t2.isWard
-            ? `OSM locality boundary — ${where}. No numbered ward published for this area.`
-            : `OSM municipality only — ${t2.cityName}. No ward-level boundary published for this area.`,
+            ? `OSM locality boundary, ${where}. No numbered ward published for this area.`
+            : `OSM municipality only, ${t2.cityName}. No ward-level boundary published for this area.`,
         ward: t2.wardNo,
         zoneName: t2.areaName,
         cityName: t2.cityName,
         // We have a place, but no vetted contact registry outside our Tier 1 cities.
         authorities: [],
         ambiguityNote:
-          "Outside our high-resolution coverage. We can name the locality but have no verified contact registry for this body — please confirm the responsible agency before filing.",
+          "Outside our high-resolution coverage. We can name the locality but have no verified contact registry for this body, please confirm the responsible agency before filing.",
       };
     }
   } catch {
@@ -214,6 +214,6 @@ export async function resolveAuthority(
     method:
       "No boundary data available for this location. Open ward polygons exist for roughly 28 of India's ~4,800 urban local bodies.",
     authorities: [],
-    ambiguityNote: "Manual confirmation required — we will not guess a jurisdiction.",
+    ambiguityNote: "Manual confirmation required, we will not guess a jurisdiction.",
   };
 }

@@ -22,7 +22,6 @@ import { composeRti, composePostItem } from "@/lib/outbox";
 import type { AuthorityRecord } from "@/lib/authorities";
 import { DEMO_REPLIES } from "@/lib/correspondence";
 import { fileReport } from "@/lib/pipeline";
-import { t } from "@/lib/i18n";
 
 const CivicMap = dynamic(() => import("@/components/CivicMap"), { ssr: false });
 
@@ -111,7 +110,7 @@ export default function Home() {
         store.pushTrace({
           agent: "TRIAGE",
           status: "warn",
-          text: `${found.length} possible duplicate(s) nearby — asking before filing`,
+          text: `${found.length} possible duplicate(s) nearby, asking before filing`,
         });
         setPendingConfirm(c);
         setDupes(found);
@@ -122,7 +121,7 @@ export default function Home() {
     [store, commit]
   );
 
-  const { stats, lang, user } = store;
+  const { stats, user } = store;
   const live = selected
     ? (store.reports.find((r) => r.id === selected.id) ?? selected)
     : null;
@@ -136,13 +135,11 @@ export default function Home() {
       <DemoOnboarding />
       <TopBar
         stats={stats}
-        lang={lang}
         demo={store.demo}
         outboxCount={store.outbox.length}
         displayName={store.displayName}
         email={store.user?.email ?? ""}
         avatarUrl={store.avatarUrl}
-        onToggleLang={() => store.setLang(lang === "en" ? "ta" : "en")}
         onToggleDemo={store.toggleDemo}
         onOpenOutbox={() => setOutboxOpen(true)}
         onToggleTrace={() => setTraceOpen((v) => !v)}
@@ -177,7 +174,6 @@ export default function Home() {
         <div className="relative min-h-0 min-w-0 flex-1">
           {tab === "report" && (
             <ReportTab
-              lang={lang}
               displayName={store.displayName}
               onConfirm={onConfirm}
               busy={busy}
@@ -233,13 +229,13 @@ export default function Home() {
               <>
                 <div className="pointer-events-none absolute inset-x-0 top-0 z-[var(--z-overlay)] px-3 pt-3">
                   <p className="mx-auto w-fit rounded-full border border-[var(--border)] bg-[var(--surface)]/92 px-3 py-1 text-[10px] text-[var(--text-dim)] backdrop-blur">
-                    {t(lang, "reportsNotProblems")}
+                    Showing reports, not problems. Affluent areas report more.
                   </p>
                 </div>
 
                 <div className="pointer-events-none absolute bottom-3 left-3 z-[var(--z-overlay)] hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]/95 p-2.5 backdrop-blur md:block">
                   <LegendRow color="var(--danger)" label="Past deadline" />
-                  <LegendRow color="#9aa8a0" label="Claimed fixed — unverified" hollow />
+                  <LegendRow color="#9aa8a0" label="Claimed fixed, unverified" hollow />
                   <LegendRow color="var(--success)" label="Citizen-verified" />
                   <p className="mt-1.5 max-w-[20ch] border-t border-[var(--border)] pt-1.5 text-[9px] leading-relaxed text-[var(--text-faint)]">
                     Community-wide. You can open anyone&apos;s report; only the
@@ -280,7 +276,7 @@ export default function Home() {
               store.pushTrace({
                 agent: "FILING",
                 status: "ok",
-                text: `Voice added to ${id} — no duplicate ticket created`,
+                text: `Voice added to ${id}, no duplicate ticket created`,
               });
               setDupes(null);
               setPendingConfirm(null);
@@ -304,7 +300,6 @@ export default function Home() {
         {live && (
           <ReportSheet
             report={live}
-            lang={lang}
             canAct={mine}
             replies={DEMO_REPLIES}
             fetchComments={store.fetchComments}

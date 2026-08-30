@@ -168,7 +168,7 @@ export async function fileReport(
     status: fix.exact ? "ok" : "warn",
     text: fix.exact
       ? `Live geolocation ${fix.lat.toFixed(5)}, ${fix.lng.toFixed(5)} (EXIF not trusted)`
-      : "Device gave no location fix — using city centroid, flagged as approximate",
+      : "Device gave no location fix, using city centroid, flagged as approximate",
   });
 
   deps.pushTrace({
@@ -177,7 +177,7 @@ export async function fileReport(
     text:
       routing.tier === 1
         ? `Tier 1 · Ward ${routing.ward}, Zone ${routing.zoneNo} · ${routing.zoneName}`
-        : `Tier ${routing.tier} · confidence ${routing.confidence} — ${routing.method}`,
+        : `Tier ${routing.tier} · confidence ${routing.confidence}, ${routing.method}`,
     ms: c.resolveMs,
   });
   if (routing.ambiguityNote) {
@@ -195,7 +195,7 @@ export async function fileReport(
   const sla = getSLA(category);
   const slaHours = sla.hours;
 
-  deps.pushTrace({ agent: "SLA", text: `${slaHours}h — ${sla.source} (${sla.resolutionTarget})` });
+  deps.pushTrace({ agent: "SLA", text: `${slaHours}h, ${sla.source} (${sla.resolutionTarget})` });
 
   // The id comes from a Postgres sequence, not a client counter — two browsers
   // filing at once would otherwise mint the same reference.

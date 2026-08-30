@@ -26,7 +26,7 @@ export default function DuplicatePrompt({
         </h3>
         <p className="mt-1 text-[11px] leading-snug text-[var(--text-dim)]">
           Adding your voice to an existing report carries more weight than a separate
-          ticket — and stops the same defect being counted, and closed, twice.
+          ticket, and stops the same defect being counted, and closed, twice.
         </p>
 
         <div className="mt-3 space-y-2">
@@ -66,7 +66,7 @@ export default function DuplicatePrompt({
         </div>
 
         <p className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-2 text-[10px] leading-snug text-[var(--text-dim)]">
-          Photos taken from different angles won&apos;t always match — a low score
+          Photos taken from different angles won&apos;t always match, so a low score
           doesn&apos;t mean it&apos;s a different problem.
         </p>
 
@@ -81,7 +81,7 @@ export default function DuplicatePrompt({
             onClick={onFileAnyway}
             className="flex-1 rounded-lg border border-[var(--border)] px-3 py-2.5 text-xs font-semibold hover:border-[var(--border-strong)]"
           >
-            It&apos;s different — file it
+            It&apos;s different, file it
           </button>
         </div>
       </div>

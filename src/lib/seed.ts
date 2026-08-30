@@ -80,14 +80,14 @@ export function buildSeedReports(baseNow: number): Report[] {
         at: createdAt + 3 * 24 * HOUR,
         kind: "transferred",
         detail:
-          "CMWSSB replied: 'not our jurisdiction, refer GCC'. Re-filed to GCC — SLA clock NOT reset.",
+          "CMWSSB replied: 'not our jurisdiction, refer GCC'. Re-filed to GCC. SLA clock NOT reset.",
       });
     }
     if (s.status === "claims_done") {
       timeline.push({
         at: createdAt + 3 * 24 * HOUR,
         kind: "claims_done",
-        detail: "Authority marked resolved. Awaiting citizen verification — not closed.",
+        detail: "Authority marked resolved. Awaiting citizen verification, not closed.",
       });
     }
     if (s.status === "escalated") {
@@ -131,7 +131,7 @@ export function buildSeedReports(baseNow: number): Report[] {
       routing: {
         tier: 1,
         confidence: "high",
-        method: "Ward polygon match — GCC open ward dataset",
+        method: "Ward polygon match, GCC open ward dataset",
         cityName: "Greater Chennai Corporation",
         authorities: [],
       },
@@ -139,8 +139,8 @@ export function buildSeedReports(baseNow: number): Report[] {
       slaDeadline,
       filedTo:
         s.category === "sewage_overflow" || s.category === "storm_water_drain"
-          ? ["GCC — Storm Water Drain Department", "CMWSSB — Area Engineer"]
-          : ["GCC — Bus Route Roads / Roads Department"],
+          ? ["GCC Storm Water Drain Department", "CMWSSB Area Engineer"]
+          : ["GCC Bus Route Roads / Roads Department"],
       supporters: s.supporters,
       escalationPostId: s.status === "escalated" ? `post_${s.id}` : undefined,
       timeline,
@@ -193,9 +193,9 @@ export function buildSeedOutbox(reports: Report[]): SeedOutboxRow[] {
       report_id: r.id,
       kind: "complaint" as const,
       at: r.createdAt + 2 * 60_000,
-      intended_to: r.filedTo[0] ?? "GCC — Bus Route Roads / Roads Department",
+      intended_to: r.filedTo[0] ?? "GCC Bus Route Roads / Roads Department",
       actually_to: SINK,
-      subject: `Civic complaint ${r.id} — ${r.category.replace(/_/g, " ")} at ${r.place}`,
+      subject: `Civic complaint ${r.id}: ${r.category.replace(/_/g, " ")} at ${r.place}`,
       body: [
         `To: ${r.filedTo[0] ?? "the responsible department"}`,
         ``,
@@ -247,7 +247,7 @@ export function buildSeedInbound(reports: Report[]): {
       actually_to: SINK,
       subject: "Re: Civic complaint CA-4467",
       body:
-        "Re: CA-4467 — noted. Re-filing to CMWSSB for further action. Please " +
+        "Re: CA-4467, noted. Re-filing to CMWSSB for further action. Please " +
         "note the original complaint clock is unchanged; a transfer between " +
         "agencies is not a resolution. Bombay HC, High Court on its own motion " +
         "v. State of Maharashtra (13 Oct 2025), declines to permit agencies to " +
@@ -274,7 +274,7 @@ export function buildSeedInbound(reports: Report[]): {
       actually_to: SINK,
       subject: "Re: Civic complaint CA-4480",
       body:
-        "Re: CA-4480 — thank you. This will be marked resolved once a resident " +
+        "Re: CA-4480, thank you. This will be marked resolved once a resident " +
         "confirms with a photograph. Until then it remains open on the public " +
         "ledger as claimed-but-unverified.",
       recipient_verified: true,

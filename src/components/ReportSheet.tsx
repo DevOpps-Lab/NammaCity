@@ -5,7 +5,6 @@ import type { Report } from "@/lib/types";
 import { STATUS_STYLES } from "@/lib/status";
 import { formatRemaining, slaProgress, now } from "@/lib/demoClock";
 import type { InboundReply } from "@/lib/correspondence";
-import type { Lang } from "@/lib/i18n";
 import type { Comment } from "@/lib/db";
 import Icon from "./Icon";
 import Correspondence from "./Correspondence";
@@ -26,7 +25,6 @@ export default function ReportSheet({
   onFileRti,
 }: {
   report: Report;
-  lang: Lang;
   /**
    * False when this report belongs to another citizen. The map is community-
    * wide, so anyone can OPEN a report — but verify, escalate, RTI and the
@@ -183,7 +181,7 @@ export default function ReportSheet({
                 {formatRemaining(report.slaDeadline, t)}
               </p>
               <p className="mt-0.5 text-[11px] leading-snug text-[var(--text-dim)]">
-                Measured against the authority&apos;s own published deadline — not one we
+                Measured against the authority&apos;s own published deadline, not one we
                 invented.
               </p>
             </div>
@@ -273,7 +271,7 @@ export default function ReportSheet({
                 onClick={() => onRequestEscalate(report)}
                 className="w-full rounded-lg bg-[var(--danger)] px-3 py-2.5 text-xs font-semibold text-[var(--on-accent)] hover:brightness-110"
               >
-                Escalate publicly — deadline missed
+                Escalate publicly: deadline missed
               </button>
             )}
           </div>
@@ -313,8 +311,8 @@ export default function ReportSheet({
 
         {!canAct && !closed && (
           <p className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-2.5 text-[11px] leading-relaxed text-[var(--text-dim)]">
-            Another resident filed this. You can back it, and — if you&apos;ve
-            seen it fixed — verify it with a photo. Escalation stays with the
+            Another resident filed this. You can back it, and if you&apos;ve
+            seen it fixed, verify it with a photo. Escalation stays with the
             filer.
           </p>
         )}

@@ -147,21 +147,21 @@ function compose(kind: NotifyKind, report: NotifiableReport): string {
 
 *It is not closed.* We don't close a report on an authority's word.
 
-If it really is fixed, open the link below and send an after-photo — we check it and close the case.
+If it really is fixed, open the link below and send an after-photo. We check it and close the case.
 If it isn't fixed, do nothing. The clock keeps running and we keep escalating.${link}`;
 
     case "past_sla":
-      return `⏰ ${report.id}${where} — *${what}* — has passed the deadline the authority publishes for itself (${deadline}).
+      return `⏰ ${report.id}${where}, *${what}*, has passed the deadline the authority publishes for itself (${deadline}).
 
 Still open. We're keeping the record.${link}`;
 
     case "escalated":
-      return `📣 ${report.id}${where} — *${what}* — is still unresolved past the published standard, so it has been escalated to the public ledger.${link}`;
+      return `📣 ${report.id}${where}, *${what}*, is still unresolved past the published standard, so it has been escalated to the public ledger.${link}`;
 
     case "verified_fixed":
-      return `✅ ${report.id}${where} — *${what}* — is closed. An after-photo was checked and the defect is gone.
+      return `✅ ${report.id}${where}, *${what}*, is closed. An after-photo was checked and the defect is gone.
 
-Thank you — a verified fix is worth more than a claimed one.${link}`;
+Thank you. A verified fix is worth more than a claimed one.${link}`;
   }
 }
 
@@ -216,7 +216,7 @@ async function attempt(
     .eq("id", row.id);
   if (outcome.code === OUTSIDE_WINDOW_CODE) {
     console.info(
-      `[whatsapp] ${row.id} not delivered — outside the 24h window; the tracking link still works`
+      `[whatsapp] ${row.id} not delivered, outside the 24h window; the tracking link still works`
     );
   } else {
     console.warn(`[whatsapp] notification send failed: ${outcome.message}`);

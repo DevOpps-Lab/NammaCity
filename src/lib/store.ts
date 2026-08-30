@@ -11,7 +11,6 @@ import type { OutboxItem } from "./outbox";
 import { composeReply } from "./outbox";
 import { classifyReply, applyReply, type InboundReply } from "./correspondence";
 import { composePost, composeUpdate } from "./escalation";
-import type { Lang } from "./i18n";
 import { toast } from "sonner";
 
 /**
@@ -37,7 +36,6 @@ export function useCivicStore() {
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
   const [publicPosts, setPublicPosts] = useState<db.PublicPost[]>([]);
   const [trace, setTrace] = useState<TraceLine[]>([]);
-  const [lang, setLangState] = useState<Lang>("en");
   const [demo, setDemo] = useState(false);
   const [tick, setTick] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -120,15 +118,14 @@ export function useCivicStore() {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("display_name, lang, avatar_url")
+        .select("display_name, avatar_url")
         .eq("id", u.id)
         .maybeSingle();
 
       if (profile) {
         setDisplayName(profile.display_name ?? "");
         setAvatarUrl(profile.avatar_url ?? null);
-        setLangState((profile.lang as Lang) ?? "en");
-      }
+        }
 
       // Seeding disabled: accounts start EMPTY so the demo shows only real,
       // end-to-end activity (file -> email -> reply -> verify -> escalate ->
@@ -225,7 +222,7 @@ export function useCivicStore() {
                 {
                   at: t,
                   kind: "past_sla",
-                  detail: "SLA breached — authority missed its own published deadline",
+                  detail: "SLA breached, authority missed its own published deadline",
                 },
               ],
             };
@@ -291,16 +288,6 @@ export function useCivicStore() {
 
   const clearTrace = useCallback(() => setTrace([]), []);
 
-  const setLang = useCallback(
-    (l: Lang) => {
-      setLangState(l);
-      if (userRef.current) {
-        void supabase.from("profiles").update({ lang: l }).eq("id", userRef.current);
-      }
-    },
-    [supabase]
-  );
-
   const toggleDemo = useCallback(() => {
     const next = !isDemoMode();
     setDemoMode(next);
@@ -309,8 +296,8 @@ export function useCivicStore() {
       agent: "SLA",
       status: "warn",
       text: next
-        ? "Demo clock engaged — 1 second = 1 hour. Deadlines will arrive live."
-        : "Demo clock disengaged — real time resumed.",
+        ? "Demo clock engaged, 1 second = 1 hour. Deadlines will arrive live."
+        : "Demo clock disengaged, real time resumed.",
     });
   }, [pushTrace]);
 
@@ -507,7 +494,7 @@ export function useCivicStore() {
         status: classified.resetsClock ? "warn" : "ok",
         text: classified.resetsClock
           ? "Clock reset"
-          : "Clock NOT reset — a transfer or status update is not a resolution",
+          : "Clock NOT reset, a transfer or status update is not a resolution",
       });
       if (classified.kind === "claims_done") {
         pushTrace({
@@ -744,8 +731,6 @@ export function useCivicStore() {
     stats,
     trace,
     demo,
-    lang,
-    setLang,
     toggleDemo,
     pushTrace,
     clearTrace,

@@ -83,7 +83,7 @@ export default function EscalationPanel({
         <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-3">
           <p className="whitespace-pre-wrap text-xs leading-relaxed">{post.text}</p>
           <div className="mt-2 grid h-20 place-items-center rounded-lg border border-dashed border-[var(--border-strong)] text-[10px] text-[var(--text-dim)]">
-            evidence photo — attached natively, not linked
+            evidence photo, attached natively, not linked
           </div>
         </div>
 

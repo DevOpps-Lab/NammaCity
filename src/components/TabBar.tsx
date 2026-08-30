@@ -7,7 +7,7 @@ export type TabKey = "report" | "dashcam" | "reports" | "feed" | "map";
 const TABS: { key: TabKey; label: string; icon: IconName }[] = [
   { key: "report", label: "Report", icon: "camera" },
   { key: "dashcam", label: "Dashcam", icon: "video" },
-  { key: "reports", label: "My Reports", icon: "file-text" },
+  { key: "reports", label: "Reports", icon: "file-text" },
   { key: "feed", label: "Feed", icon: "users" },
   { key: "map", label: "Map", icon: "map" },
 ];
@@ -36,7 +36,7 @@ export default function TabBar({
       {/* --- mobile: bottom bar --- */}
       <nav
         aria-label="Main"
-        className="pb-safe px-safe pointer-events-none absolute inset-x-0 bottom-0 z-[var(--z-panel)] shrink-0 p-3 lg:hidden"
+        className="pb-safe-3 px-safe pointer-events-none absolute inset-x-0 bottom-0 z-[var(--z-panel)] shrink-0 p-3 lg:hidden"
       >
         <ul className="pointer-events-auto grid grid-cols-5 overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)]/90 shadow-[var(--shadow-2)] backdrop-blur-xl">
           {TABS.map((t) => {
@@ -60,7 +60,7 @@ export default function TabBar({
                     <Icon name={t.icon} size={19} />
                     {t.key === "reports" && badge ? <Dot count={badge} /> : null}
                   </span>
-                  <span className={`text-[11px] ${on ? "font-bold" : "font-medium"}`}>
+                  <span className={`whitespace-nowrap text-[11px] ${on ? "font-bold" : "font-medium"}`}>
                     {t.label}
                   </span>
                 </button>

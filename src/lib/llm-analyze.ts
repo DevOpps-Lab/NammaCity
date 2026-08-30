@@ -99,7 +99,7 @@ export async function llmAnalyze(
     payload = await res.json();
   } catch {
     return UNAVAILABLE(
-      "You appear to be offline — automatic analysis is unavailable. Choose the category and severity below."
+      "You appear to be offline, automatic analysis is unavailable. Choose the category and severity below."
     );
   }
 
@@ -113,7 +113,7 @@ export async function llmAnalyze(
   }
   if (payload.rateLimited) {
     return UNAVAILABLE(
-      "Automatic analysis has hit today's free-tier limit. Choose the category and severity below — filing works exactly the same."
+      "Automatic analysis has hit today's free-tier limit. Choose the category and severity below, filing works exactly the same."
     );
   }
   if (payload.error || !payload.category) {

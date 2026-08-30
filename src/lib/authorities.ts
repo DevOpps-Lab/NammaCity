@@ -43,7 +43,7 @@ export interface AuthorityRecord extends Authority {
 export const CHENNAI_AUTHORITIES: AuthorityRecord[] = [
   {
     id: "gcc-swd",
-    name: "GCC — Storm Water Drain Department",
+    name: "GCC Storm Water Drain Department",
     // Confirmed from chennaicorporation.gov.in/gcc/department/storm-water/
     email: "seswd@chennaicorporation.gov.in",
     verified: true,
@@ -51,26 +51,26 @@ export const CHENNAI_AUTHORITIES: AuthorityRecord[] = [
     handle: "@chennaicorp",
     slaHours: 72,
     slaSource:
-      "GCC public statement: complaints resolved in 2–3 days (reported, DT Next) — not a charter guarantee",
+      "GCC public statement: complaints resolved in 2-3 days (reported, DT Next), not a charter guarantee",
     categories: ["storm_water_drain", "pothole"],
   },
   {
     id: "gcc-roads",
-    name: "GCC — Bus Route Roads / Roads Department",
+    name: "GCC Bus Route Roads / Roads Department",
     email: "commissioner@chennaicorporation.gov.in",
     verified: false,
-    source: "UNVERIFIED — placeholder pending primary-source confirmation",
+    source: "UNVERIFIED: placeholder pending primary-source confirmation",
     handle: "@chennaicorp",
     slaHours: 72,
-    slaSource: "GCC public statement: 2–3 days (reported) — not a charter guarantee",
+    slaSource: "GCC public statement: 2-3 days (reported), not a charter guarantee",
     categories: ["pothole"],
   },
   {
     id: "cmwssb",
-    name: "CMWSSB (Chennai Metro Water) — Area Engineer",
+    name: "CMWSSB (Chennai Metro Water), Area Engineer",
     email: "cmwssb@cmwssb.tn.gov.in",
     verified: false,
-    source: "UNVERIFIED — placeholder pending primary-source confirmation",
+    source: "UNVERIFIED: placeholder pending primary-source confirmation",
     handle: "@cmwssbofficial",
     slaHours: 72,
     slaSource: "No published charter SLA located for CMWSSB",
@@ -78,22 +78,22 @@ export const CHENNAI_AUTHORITIES: AuthorityRecord[] = [
   },
   {
     id: "gcc-swm",
-    name: "GCC — Solid Waste Management",
+    name: "GCC Solid Waste Management",
     email: "commissioner@chennaicorporation.gov.in",
     verified: false,
-    source: "UNVERIFIED — placeholder",
+    source: "UNVERIFIED: placeholder",
     handle: "@chennaicorp",
     slaHours: 24,
-    slaSource: "Swachhata app category SLA: 12 hours – 1 week depending on complaint type",
+    slaSource: "Swachhata app category SLA: 12 hours to 1 week depending on complaint type",
     categories: ["garbage"],
   },
   {
     id: "gcc-streets",
-    name: "GCC — Street Lighting Department",
+    name: "GCC Street Lighting Department",
     // BESCOM handles lighting outside Chennai city limits; inside GCC handles it.
     email: "commissioner@chennaicorporation.gov.in",
     verified: false,
-    source: "UNVERIFIED — placeholder pending primary-source confirmation",
+    source: "UNVERIFIED: placeholder pending primary-source confirmation",
     handle: "@chennaicorp",
     slaHours: 48,
     slaSource: "Citizen Charter target: 2 working days for streetlight faults",
@@ -101,13 +101,13 @@ export const CHENNAI_AUTHORITIES: AuthorityRecord[] = [
   },
   {
     id: "gcc-general",
-    name: "GCC — Commissioner's Office (General Complaints)",
+    name: "GCC Commissioner's Office (General Complaints)",
     email: "commissioner@chennaicorporation.gov.in",
     verified: false,
-    source: "UNVERIFIED — catch-all for complaints not matching a known department",
+    source: "UNVERIFIED: catch-all for complaints not matching a known department",
     handle: "@chennaicorp",
     slaHours: 72,
-    slaSource: "Default 72h — no specific charter SLA for this category",
+    slaSource: "Default 72h. No specific charter SLA for this category.",
     categories: ["other"],
   },
 ];
@@ -146,7 +146,7 @@ export function authoritiesFor(
     return {
       authorities: both,
       ambiguityNote:
-        "Storm-water vs sewer ownership is ambiguous here. Filing to GCC and CMWSSB simultaneously rather than guessing — Bombay HC (13 Oct 2025) forbids agencies creating 'no-man's zones' of responsibility.",
+        "Storm-water vs sewer ownership is ambiguous here. Filing to GCC and CMWSSB simultaneously rather than guessing. Bombay HC (13 Oct 2025) forbids agencies creating 'no-man's zones' of responsibility.",
     };
   }
 
@@ -180,13 +180,13 @@ export function genericMunicipalAuthority(
   return {
     id: "fallback-municipal",
     name: cityName
-      ? `${cityName} — Municipal Body (General Complaints)`
+      ? `${cityName} Municipal Body (General Complaints)`
       : "Local Municipal Body (General Complaints)",
     email: "commissioner@localbody.gov.in",
     verified: false,
-    source: "Deterministic fallback — no verified registry covers this location",
+    source: "Deterministic fallback: no verified registry covers this location",
     slaHours: 72,
-    slaSource: "Default 72h — no published charter located for this location",
+    slaSource: "Default 72h. No published charter located for this location.",
     categories: [category],
   };
 }
@@ -213,7 +213,7 @@ export const REFERENCE_SLAS = [
   {
     body: "CPGRAMS (central)",
     hours: 21 * 24,
-    note: "21-day disposal mandate. Average 13–15 days central; 64 days for States/UTs.",
+    note: "21-day disposal mandate. Average 13-15 days central; 64 days for States/UTs.",
     enforceable: false,
   },
 ];

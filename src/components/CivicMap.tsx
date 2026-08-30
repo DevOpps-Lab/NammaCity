@@ -13,17 +13,24 @@ import { now } from "@/lib/demoClock";
  * If the first fails to load we fall through rather than showing a black void.
  */
 const STYLES = [
-  // Dark-matter is the dark counterpart of Positron, and it is chosen for the
-  // same reason Positron was: it is the lowest-chroma keyless basemap on offer,
-  // which is what keeps eight status hues legible on top of it. Liberty's
-  // coloured landuse polygons fight the pins, and a LIGHT basemap under this
-  // near-black UI reads as a broken panel rather than a map.
-  "https://tiles.openfreemap.org/styles/dark",
-  "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+  // Positron: the lowest-chroma keyless basemap available, which is what keeps
+  // eight status hues legible on top of it. Liberty and Bright colour their
+  // landuse polygons and fight the pins.
+  //
+  // This was briefly swapped to dark-matter so the map matched the dark shell.
+  // Measured, that style paints its background rgb(12,12,12), darker than the
+  // app's own #0d0e10, and streets in an unlit ward became unreadable. A map is
+  // a document, not chrome. It is allowed to be lighter than the frame around
+  // it, and the pin chrome below is tuned to sit on pale tiles.
+  "https://tiles.openfreemap.org/styles/positron",
+  "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
 ];
 
 const CHENNAI: [number, number] = [80.2496, 13.0604];
 const CLUSTER_ZOOM = 12.5;
+
+/** How long to wait for a basemap before trying the other provider. */
+const STYLE_TIMEOUT_MS = 9000;
 
 const SEVERITY_ORDER: Report["status"][] = [
   "escalated",
@@ -61,7 +68,18 @@ export default function CivicMap({ reports, selectedId, onSelect, visible = true
 
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(11.2);
+  /**
+   * Whether pins are currently clustered.
+   *
+   * This used to be the raw zoom level, set from map.on("zoom") on EVERY frame
+   * of a pinch, with the marker effect depending on it. Each of those frames
+   * tore down and rebuilt a maplibregl.Marker for every report on screen, which
+   * is what stalled the main thread on phones and left the map looking
+   * half-drawn. Only the threshold is ever read, so only the threshold is
+   * stored: React bails out when the boolean does not change, and the markers
+   * are rebuilt once per crossing instead of once per frame.
+   */
+  const [clustered, setClustered] = useState(11.2 < CLUSTER_ZOOM);
 
   // --- init ---------------------------------------------------------------
   useEffect(() => {
@@ -71,6 +89,7 @@ export default function CivicMap({ reports, selectedId, onSelect, visible = true
 
     let styleIndex = 0;
     let disposed = false;
+    let stallTimer = 0;
 
     const build = () => {
       const map = new maplibregl.Map({
@@ -98,25 +117,53 @@ export default function CivicMap({ reports, selectedId, onSelect, visible = true
 
       map.on("load", () => {
         if (disposed) return;
+        window.clearTimeout(stallTimer);
         setReady(true);
         setFailed(null);
         // Container may have been sized after init (flex/dvh settling).
         map.resize();
       });
 
-      map.on("error", (e) => {
-        // A style that fails to load leaves a black canvas with no clue why —
-        // surface it and try the next source instead of failing silently.
-        const msg = (e as unknown as { error?: Error })?.error?.message ?? "unknown";
-        if (!map.isStyleLoaded() && styleIndex < STYLES.length - 1) {
+      /*
+        `ready` was only ever set from the load event, with nothing watching for
+        it never arriving. On a slow phone connection that meant a spinner that
+        span forever AND no pins at all, because the marker effect returns early
+        until ready. A stalled load now falls through to the other provider, and
+        if that also stalls the user is told instead of watching an animation.
+      */
+      stallTimer = window.setTimeout(() => {
+        if (disposed || map.isStyleLoaded()) return;
+        if (styleIndex < STYLES.length - 1) {
           styleIndex++;
           map.setStyle(STYLES[styleIndex]);
           return;
         }
-        if (!map.isStyleLoaded()) setFailed(msg);
+        setFailed("timed out loading map tiles");
+      }, STYLE_TIMEOUT_MS);
+
+      /*
+        A style that fails to load leaves a blank canvas with no clue why, so
+        fall through to the next provider rather than failing silently.
+
+        But `error` fires for ANY failure, including a single tile or glyph
+        404. The previous version treated those the same as a dead style, so on
+        a flaky mobile connection one dropped tile mid-load restarted the entire
+        style against the other provider, and once on the last style any
+        transient tile error painted the full-screen failure state over a map
+        that was working. Resource errors carry a sourceId; those are ignored.
+      */
+      map.on("error", (e) => {
+        const err = e as unknown as { error?: Error; sourceId?: string };
+        if (err.sourceId || map.isStyleLoaded()) return;
+        if (styleIndex < STYLES.length - 1) {
+          styleIndex++;
+          map.setStyle(STYLES[styleIndex]);
+          return;
+        }
+        setFailed(err.error?.message ?? "unknown");
       });
 
-      map.on("zoom", () => setZoom(map.getZoom()));
+      map.on("zoom", () => setClustered(map.getZoom() < CLUSTER_ZOOM));
       mapRef.current = map;
     };
 
@@ -129,6 +176,7 @@ export default function CivicMap({ reports, selectedId, onSelect, visible = true
 
     return () => {
       disposed = true;
+      window.clearTimeout(stallTimer);
       ro.disconnect();
       mapRef.current?.remove();
       mapRef.current = null;
@@ -158,8 +206,8 @@ export default function CivicMap({ reports, selectedId, onSelect, visible = true
       markersRef.current.set(key, m);
     };
 
-    if (zoom < CLUSTER_ZOOM) {
-      const p = zoom < 10 ? 1 : 2;
+    if (clustered) {
+      const p = map.getZoom() < 10 ? 1 : 2;
       const buckets = new Map<string, Report[]>();
       for (const r of reports) {
         const k = `${r.lat.toFixed(p)},${r.lng.toFixed(p)}`;
@@ -201,7 +249,7 @@ export default function CivicMap({ reports, selectedId, onSelect, visible = true
         markersRef.current.delete(key);
       }
     }
-  }, [reports, selectedId, zoom, ready]);
+  }, [reports, selectedId, clustered, ready]);
 
   // Re-measure when the tab becomes visible again: while hidden the container
   // has no usable size, so MapLibre needs to be told the viewport is back.
@@ -248,7 +296,7 @@ export default function CivicMap({ reports, selectedId, onSelect, visible = true
               Map tiles unavailable
             </p>
             <p className="mt-1.5 text-xs leading-relaxed text-[var(--text-dim)]">
-              The basemap couldn&apos;t load — usually no internet, or a network
+              The basemap couldn&apos;t load. Usually no internet, or a network
               blocking tile servers. Reports below still work; only the backdrop is
               missing.
             </p>
@@ -302,7 +350,7 @@ function pinEl(
     el.appendChild(ring);
   }
 
-  el.setAttribute("aria-label", `${s.label} — ${r.place}`);
+  el.setAttribute("aria-label", `${s.label}, ${r.place}`);
   el.addEventListener("click", (e) => {
     e.stopPropagation();
     onSelectRef.current?.(r);

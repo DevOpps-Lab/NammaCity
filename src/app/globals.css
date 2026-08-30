@@ -62,11 +62,12 @@
     color-mix(in srgb, var(--warning) 14%, var(--bg)) 100%
   );
 
-  /* Map pin chrome. The white halo returns: on a dark basemap it is what
-     separates a pin from the tiles, and the hairline outline goes dark again
-     so the halo itself has an edge. */
+  /* Map pin chrome, tuned for the pale Positron basemap. The white halo is
+     what separates a coloured pin from light tiles; the outline is a hairline
+     rather than the heavy black one a dark basemap needed, which on pale tiles
+     reads as a smudge. */
   --pin-ring: rgba(255, 255, 255, 0.95);
-  --pin-ring-outline: rgba(0, 0, 0, 0.55);
+  --pin-ring-outline: rgba(15, 22, 32, 0.28);
   --pin-label: #17130a;
 
   /* Overlay tints, so hover states and scrims aren't hardcoded per component. */
@@ -168,6 +169,34 @@ button {
   padding-bottom: calc(var(--pb, 0px) + env(safe-area-inset-bottom, 0px));
 }
 
+/*
+ * Safe-area padding that also keeps its own gap.
+ *
+ * `.pb-safe` is defined unlayered, so it beats Tailwind's layered `p-3` and
+ * zeroes the bottom padding wherever the two are combined. `--pb` was the hook
+ * for putting that gap back and was never set anywhere, so the floating tab bar
+ * sat flush against the bottom edge on every Android and desktop viewport.
+ */
+.pb-safe-3 {
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+}
+
+/*
+ * Room for the floating tab bar (58px + 12px gap + safe area).
+ *
+ * The bar is absolutely positioned, so it reserves no space and covered the
+ * last row of every scrolling surface. The TabBar comment claimed each tab
+ * surface left room for it; none of them did.
+ */
+.pb-navbar {
+  padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
+}
+@media (min-width: 1024px) {
+  .pb-navbar {
+    padding-bottom: 0;
+  }
+}
+
 .px-safe {
   padding-left: env(safe-area-inset-left, 0px);
   padding-right: env(safe-area-inset-right, 0px);
@@ -233,7 +262,7 @@ button {
    so "hollow" still reads as hollow against a dark basemap instead of turning
    into a pale blob that outshines the solid pins. */
 .pin--hollow::after {
-  background: color-mix(in srgb, var(--pin) 34%, var(--bg));
+  background: color-mix(in srgb, var(--pin) 30%, #ffffff);
   border: 2.5px dashed var(--pin);
   box-shadow:
     0 0 0 1px var(--pin-ring-outline),
@@ -328,8 +357,7 @@ button {
   }
 
   .shimmer,
-  .breathe,
-  .drift {
+  .indeterminate {
     animation: none !important;
   }
 
@@ -339,30 +367,38 @@ button {
 }
 
 /* MapLibre chrome, themed */
+/*
+   Left light so MapLibre's own black glyphs stay legible. Tinting this to the
+   dark app surface previously forced a filter: invert(1) on the icons, which
+   is a rule that has to flip every time the basemap does.
+*/
 .maplibregl-ctrl-group {
-  background: var(--surface) !important;
-  border: 1px solid var(--border) !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4) !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(15, 22, 32, 0.14) !important;
+  box-shadow: 0 1px 4px rgba(15, 22, 32, 0.22) !important;
 }
 .maplibregl-ctrl-group button + button {
-  border-top: 1px solid var(--border) !important;
-}
-
-/* MapLibre ships BLACK control glyphs, which vanish against a dark control
-   surface. Invert them back to near-white. (On the previous light theme this
-   inversion was the bug — white-on-white — so it is tied to the theme, not a
-   permanent fix.) */
-.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
-  filter: invert(1) brightness(1.6);
+  border-top: 1px solid rgba(15, 22, 32, 0.14) !important;
 }
 
 .maplibregl-ctrl-attrib {
-  background: rgba(13, 14, 16, 0.86) !important;
-  color: var(--text-faint) !important;
+  background: rgba(255, 255, 255, 0.82) !important;
+  color: rgba(15, 22, 32, 0.62) !important;
   font-size: 10px !important;
 }
 .maplibregl-ctrl-attrib a {
-  color: var(--text-faint) !important;
+  color: rgba(15, 22, 32, 0.62) !important;
+}
+
+/*
+   Lift MapLibre's own controls clear of the floating tab bar on phones. They
+   default to ~10px from the bottom edge, which is underneath it.
+*/
+@media (max-width: 1023px) {
+  .maplibregl-ctrl-bottom-right,
+  .maplibregl-ctrl-bottom-left {
+    bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 /* Scrollbars */
@@ -539,35 +575,27 @@ button {
   animation: shimmer 1.5s linear infinite;
 }
 
-/* Live indicator for the agent trace header. */
-@keyframes breathe {
-  0%,
-  100% {
-    opacity: 0.35;
-    transform: scale(0.85);
+/*
+ * Indeterminate progress. Used while analysis runs, where the wait is real but
+ * its length is not knowable, so a percentage would be a lie.
+ *
+ * This is the ONLY looping animation in the product. The pulsing rings, the
+ * orbiting dot and the breathing accent glow that used to sit here loop
+ * forever without reporting anything, and four of them ran at once on the
+ * analysing screen.
+ */
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-110%);
   }
-  50% {
-    opacity: 1;
-    transform: scale(1);
+  100% {
+    transform: translateX(320%);
   }
 }
-.breathe {
-  animation: breathe 2s ease-in-out infinite;
+.indeterminate {
+  animation: indeterminate 1.4s var(--ease-out) infinite;
 }
 
-/* Slow drift behind the auth panel. Large, cheap, GPU-composited. */
-@keyframes drift {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  50% {
-    transform: translate3d(4%, -3%, 0) scale(1.12);
-  }
-}
-.drift {
-  animation: drift 22s ease-in-out infinite;
-}
 
 /* Measured-value bars draw in.
    Scale, not width: the element keeps its real width at all times, so if the

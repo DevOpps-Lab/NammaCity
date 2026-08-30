@@ -11,13 +11,13 @@ import type { IssueCategory } from "./types";
  * Category still comes from the user or the vision model — inferring it from
  * pixels alone is not credible.
  */
-export const CATEGORY_OPTIONS: { value: IssueCategory; label: string; ta: string }[] = [
-  { value: "pothole", label: "Pothole", ta: "சாலைக் குழி" },
-  { value: "storm_water_drain", label: "Storm water drain", ta: "மழைநீர் வடிகால்" },
-  { value: "sewage_overflow", label: "Sewage overflow", ta: "கழிவுநீர் வழிதல்" },
-  { value: "garbage", label: "Garbage", ta: "குப்பை" },
-  { value: "streetlight", label: "Streetlight", ta: "தெருவிளக்கு" },
-  { value: "other", label: "Other", ta: "மற்றவை" },
+export const CATEGORY_OPTIONS: { value: IssueCategory; label: string }[] = [
+  { value: "pothole", label: "Pothole" },
+  { value: "storm_water_drain", label: "Storm water drain" },
+  { value: "sewage_overflow", label: "Sewage overflow" },
+  { value: "garbage", label: "Garbage" },
+  { value: "streetlight", label: "Streetlight" },
+  { value: "other", label: "Other" },
 ];
 
 export function categoryLabel(category: IssueCategory): string {

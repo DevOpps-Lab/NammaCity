@@ -65,8 +65,8 @@ export default function OutboxPanel({
             <Icon name="close" size={18} /></button>
         </div>
         <p className="mb-3 text-[11px] leading-snug text-[var(--text-dim)]">
-          Every message is composed in full — correct recipient, cited service standard,
-          real body — and sent for real to the demo authority mailbox. The intended
+          Every message is composed in full, with the correct recipient, cited service standard,
+          and a real body, then sent for real to the demo authority mailbox. The intended
           government alias stays visible below; no mail reaches a real government address.
         </p>
 

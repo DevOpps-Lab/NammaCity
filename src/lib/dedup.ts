@@ -91,11 +91,11 @@ export function findDuplicates(
       reason = `${distanceM.toFixed(0)}m away, photos look like the same scene`;
     } else if (distanceM <= radius * 0.4) {
       confidence = "medium";
-      reason = `${distanceM.toFixed(0)}m away — very close, but the photos differ`;
+      reason = `${distanceM.toFixed(0)}m away and very close, but the photos differ`;
     } else if (hashDistance !== undefined) {
       // Explicitly do NOT downgrade below "low" on a hash miss: different
       // viewpoints of the same pothole legitimately produce different hashes.
-      reason = `${distanceM.toFixed(0)}m away — different angle, may still be the same issue`;
+      reason = `${distanceM.toFixed(0)}m away at a different angle, may still be the same issue`;
     }
 
     out.push({ report: r, distanceM, hashDistance, confidence, reason });

@@ -69,7 +69,7 @@ export default function VerifyPanel({
       onTrace(
         det.detection.ran
           ? `After-photo redacted (${img.facesFound} face(s), ${img.platesFound} plate(s)). Verifying…`
-          : "After-photo could not be auto-checked for faces or plates — review it before closing. Verifying…",
+          : "After-photo could not be auto-checked for faces or plates, so review it before closing. Verifying…",
         det.detection.ran ? "info" : "warn"
       );
 
@@ -99,12 +99,12 @@ export default function VerifyPanel({
       if (payload.configured === false || payload.rateLimited || !payload.verdict) {
         // No automatic check — fall back to the resident confirming their photo.
         setManual(true);
-        setHeadline("Automatic check unavailable — confirm manually");
+        setHeadline("Automatic check unavailable, confirm manually");
         setReasons([
           "The vision check is offline or over its daily limit.",
           "Confirm below that this photo shows the repair at the same location.",
         ]);
-        onTrace("Vision check unavailable — manual confirmation required.", "warn");
+        onTrace("Vision check unavailable, manual confirmation required.", "warn");
         return;
       }
 
@@ -117,7 +117,7 @@ export default function VerifyPanel({
         payload.reason || "",
       ].filter(Boolean));
       if (v === "likely_repaired") {
-        setHeadline("Looks repaired — confirm to close");
+        setHeadline("Looks repaired, confirm to close");
         onTrace(`Verified: place ${pm}%, defect gone ${dr}%.`, "ok");
       } else if (v === "still_present") {
         setHeadline("The defect is still there");
@@ -289,7 +289,7 @@ export default function VerifyPanel({
                 onClick={close}
                 className="flex-1 rounded-lg bg-[var(--success)] px-3 py-2.5 text-xs font-semibold text-[var(--on-accent)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:bg-[var(--surface-3)] disabled:text-[var(--text-faint)]"
               >
-                {canClose ? "It's fixed — close it" : "Cannot close"}
+                {canClose ? "It's fixed, close it" : "Cannot close"}
               </button>
             </div>
           </div>

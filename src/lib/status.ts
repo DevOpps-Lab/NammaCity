@@ -65,7 +65,7 @@ export const STATUS_STYLES: Record<ReportStatus, StatusStyle> = {
     color: "#a78bfa",
     hollow: false,
     pulse: false,
-    description: "Agency claimed it belongs to someone else. Re-filed — clock not reset.",
+    description: "Agency claimed it belongs to someone else. Re-filed, clock not reset.",
   },
   past_sla: {
     label: "Past SLA",
@@ -82,7 +82,7 @@ export const STATUS_STYLES: Record<ReportStatus, StatusStyle> = {
     description: "Published to the public accountability ledger",
   },
   claims_done: {
-    label: "Claimed fixed — unverified",
+    label: "Claimed fixed, unverified",
     color: "#9aa8a0",
     hollow: true,
     pulse: false,

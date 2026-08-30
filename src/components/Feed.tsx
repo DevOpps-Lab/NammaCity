@@ -60,7 +60,7 @@ export default function Feed({
   }, [reports, sort]);
 
   return (
-    <div className="scroll-thin h-full overflow-y-auto px-4 py-4">
+    <div className="scroll-thin pb-navbar h-full overflow-y-auto px-4 py-4">
       <div className="mx-auto w-full max-w-lg">
         {/* view toggle */}
         <div className="mb-3 flex gap-1 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-1">

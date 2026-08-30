@@ -7,7 +7,7 @@ import type { MetadataRoute } from "next";
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "NammaCity — civic issue accountability ledger",
+    name: "NammaCity, civic issue accountability ledger",
     short_name: "NammaCity",
     description:
       "Report a civic defect once. Agents file it against every responsible agency, track it against the authority's own published SLA, and escalate publicly if it is missed. Only a citizen can close it.",

@@ -2,7 +2,6 @@
 
 import Icon from "./Icon";
 import UserMenu from "./UserMenu";
-import { t, type Lang } from "@/lib/i18n";
 
 interface Props {
   stats: {
@@ -12,13 +11,11 @@ interface Props {
     fixRate: number;
     claimedRate: number;
   };
-  lang: Lang;
   demo: boolean;
   outboxCount: number;
   displayName: string;
   email: string;
   avatarUrl?: string | null;
-  onToggleLang: () => void;
   onToggleDemo: () => void;
   onOpenOutbox: () => void;
   onToggleTrace: () => void;
@@ -30,13 +27,11 @@ interface Props {
 
 export default function TopBar({
   stats,
-  lang,
   demo,
   outboxCount,
   displayName,
   email,
   avatarUrl,
-  onToggleLang,
   onToggleDemo,
   onOpenOutbox,
   onToggleTrace,
@@ -56,26 +51,35 @@ export default function TopBar({
           >
             <Icon name="shield" size={17} />
           </span>
-          <div className="hidden sm:block">
+          <div>
             <p className="text-[13px] font-bold leading-none tracking-tight">NammaCity</p>
             <p className="t-micro mt-1 leading-none">Chennai</p>
           </div>
         </div>
 
-        {/* The two actionable counts always show; the verified count is
-            redundant with the desktop rate so it drops on the narrowest bar. */}
-        <div className="ml-0.5 flex min-w-0 items-center gap-1 overflow-x-auto no-bar sm:ml-1 sm:gap-1.5">
-          <Stat label={t(lang, "open")} value={stats.open} tone="var(--accent)" />
-          <Stat label={t(lang, "pastSla")} value={stats.breached} tone="var(--danger)" />
+        {/*
+          Counts start at `sm`, not at 0.
+
+          At 390px this rail needed ~175px and had ~105px, and because it was
+          `overflow-x-auto no-bar` the overflow became an invisible scroll: the
+          "Past SLA" chip was clipped mid-word with no affordance at all. The
+          numbers are not lost, they are hosted properly. My Reports opens with
+          the verified-against-claimed pair at 26px, which is the comparison
+          this product exists to make, and a 68px chip was the worst possible
+          place to make it.
+        */}
+        <div className="ml-1 hidden min-w-0 items-center gap-1.5 sm:flex">
+          <Stat label="Open" value={stats.open} tone="var(--accent)" />
+          <Stat label="Past SLA" value={stats.breached} tone="var(--danger)" />
           <Stat
-            label={t(lang, "verified")}
+            label="Verified"
             value={stats.verified}
             tone="var(--success)"
-            className="hidden min-[440px]:flex"
+            className="hidden min-[560px]:flex"
           />
         </div>
 
-        <div className="ml-auto flex shrink-0 items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
           {/* Verified fix rate, desktop only. The full verified-vs-claimed pair
               lives at the top of My Reports, which is where a phone sees it. */}
           <p
@@ -85,12 +89,6 @@ export default function TopBar({
           >
             {stats.fixRate}%
           </p>
-
-          <IconBtn label="Switch language" onClick={onToggleLang}>
-            <span className="text-[12px] font-semibold">
-              {lang === "en" ? "தமிழ்" : "EN"}
-            </span>
-          </IconBtn>
 
           <IconBtn label="Open outbox" onClick={onOpenOutbox} badge={outboxCount}>
             <Icon name="inbox" size={17} />
@@ -113,10 +111,10 @@ export default function TopBar({
           <IconBtn label="Agent trace" onClick={onToggleTrace}>
             <Icon name="activity" size={17} />
             {traceCount > 0 && (
-              <span aria-hidden className="absolute -right-1 -top-1 flex h-2.5 w-2.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--success)] opacity-70" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full border-2 border-[var(--surface)] bg-[var(--success)]" />
-              </span>
+              <span
+                aria-hidden
+                className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface)] bg-[var(--success)]"
+              />
             )}
           </IconBtn>
 

@@ -129,7 +129,7 @@ export async function POST(req: Request) {
     {
       at: now(),
       kind: "rti",
-      detail: `RTI status request filed with ${authority.name} — the RTI Act sets a statutory 30-day deadline.`,
+      detail: `RTI status request filed with ${authority.name}, the RTI Act sets a statutory 30-day deadline.`,
     },
   ]);
 

@@ -81,11 +81,20 @@ export default function ReportList({
   }, [reports, filter]);
 
   return (
-    <div className="scroll-thin h-full overflow-y-auto">
-      <div className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--bg)]/95 backdrop-blur">
+    <div className="scroll-thin pb-navbar h-full overflow-y-auto">
+      {/*
+        Only the title and the filters are pinned.
+
+        All three blocks used to be sticky, which cost about 150px of permanently
+        occupied height on a 390px phone: with the top bar above it, a third of
+        the screen was chrome before the first report card. The figures are a
+        headline, read once on arrival. The filters are a control, needed
+        whenever the list is being read, so those are what stay.
+      */}
+      <div className="border-b border-[var(--border)]">
         <div className="mx-auto w-full max-w-2xl">
-          {/* verified vs claimed — the whole thesis, one figure each */}
-          <div className="flex divide-x divide-[var(--border)] border-b border-[var(--border)]">
+          {/* verified against claimed, the whole thesis, one figure each */}
+          <div className="flex divide-x divide-[var(--border)]">
             <div className="flex-1 px-4 py-3">
               <p className="t-micro leading-none text-[var(--success)]">Citizen-verified</p>
               <p className="mt-2 flex items-baseline gap-2">
@@ -108,6 +117,11 @@ export default function ReportList({
             </div>
           </div>
 
+        </div>
+      </div>
+
+      <div className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--bg)]/95 backdrop-blur">
+        <div className="mx-auto w-full max-w-2xl">
           <div className="flex items-baseline justify-between gap-3 px-4 pt-3.5">
             <h1 className="t-title">My reports</h1>
             <p className="t-micro">{counts.open} open</p>

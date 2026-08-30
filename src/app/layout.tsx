@@ -25,7 +25,7 @@ const dataMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NammaCity — civic accountability ledger",
+  title: "NammaCity, a civic accountability ledger",
   description:
     "Report a civic defect once. Agents file it against every responsible agency, track it against the authority's own published deadline, and escalate publicly if it's missed. Only a citizen can close it.",
   appleWebApp: {

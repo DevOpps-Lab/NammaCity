@@ -212,7 +212,7 @@ export async function POST(request: Request) {
       detail: wrongPlace
         ? // The documented fraud is a closure photographed somewhere else, so
           // this refusal is the product working, not failing.
-          `We compare the after-photo with the original. ${check.reason ?? "The two scenes don't match."} Nothing was changed — take the photo from roughly where the first one was taken.`
+          `We compare the after-photo with the original. ${check.reason ?? "The two scenes don't match."} Nothing was changed, take the photo from roughly where the first one was taken.`
         : `${check.reason ?? "The defect is still visible."} The report stays open and the clock keeps running.`,
       verdict: check.verdict,
       placeMatch: check.placeMatch,
@@ -310,7 +310,7 @@ export async function POST(request: Request) {
   return say(200, {
     closed: true,
     reason: "closed",
-    headline: "Verified — this report is closed",
+    headline: "Verified, this report is closed",
     detail:
       check.reason ??
       "The after-photo matches the original location and the defect is gone.",

@@ -149,7 +149,7 @@ export async function routeByLLM(
         email: String(parsed.email ?? ""),
         handle: parsed.handle ? String(parsed.handle) : undefined,
         slaHours: Math.max(1, Number(parsed.slaHours) || 72),
-        slaSource: String(parsed.slaSource ?? "LLM estimate — not a verified charter"),
+        slaSource: String(parsed.slaSource ?? "LLM estimate, not a verified charter"),
         confidence: Math.max(0, Math.min(1, Number(parsed.confidence) || 0)),
       },
     };

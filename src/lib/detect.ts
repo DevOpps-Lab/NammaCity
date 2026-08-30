@@ -55,7 +55,7 @@ export function analyseImage(dataUrl: string): Promise<DetectionResult> {
         severity: "medium",
         confidence: 0.2,
         areaFraction: 0,
-        signals: ["Image could not be decoded — falling back to manual severity."],
+        signals: ["Image could not be decoded, falling back to manual severity."],
         lowConfidence: true,
         method: "heuristic-v1",
       });
@@ -133,28 +133,28 @@ function runAnalysis(img: HTMLImageElement): DetectionResult {
   let penalty = 0;
 
   if (std < 22) {
-    signals.push("Low contrast — shadow or overcast conditions are hard to separate.");
+    signals.push("Low contrast, shadow or overcast conditions are hard to separate.");
     penalty += 0.25;
     lowConfidence = true;
   }
   if (meanSat < 0.12 && mean > 150) {
-    signals.push("Bright and desaturated — possible wet road or glare.");
+    signals.push("Bright and desaturated, possible wet road or glare.");
     penalty += 0.15;
     lowConfidence = true;
   }
   if (areaFraction < 0.008) {
-    signals.push("No significant dark region found — may be intact road.");
+    signals.push("No significant dark region found, may be intact road.");
     penalty += 0.3;
     lowConfidence = true;
   }
   if (areaFraction > 0.42) {
-    signals.push("Dark region dominates the frame — likely shadow, not a defect.");
+    signals.push("Dark region dominates the frame, likely shadow, not a defect.");
     penalty += 0.3;
     lowConfidence = true;
   }
   // A tight, filled bbox reads more like a manhole/patch than a pothole.
   if (boxFraction > 0.01 && areaFraction / boxFraction > 0.86) {
-    signals.push("Region is near-rectangular — possible manhole cover or road patch.");
+    signals.push("Region is near-rectangular, possible manhole cover or road patch.");
     penalty += 0.12;
   }
 

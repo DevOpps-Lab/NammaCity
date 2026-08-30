@@ -476,7 +476,7 @@ export default function DashcamTab({
           <Icon name="alert" size={28} className="mx-auto mb-3 text-[var(--danger)]" />
           <p className="text-[14px] font-semibold">Couldn&apos;t load the pothole detector</p>
           <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--text-dim)]">
-            The detector didn&apos;t finish loading — usually a network hiccup on the one-time
+            The detector didn&apos;t finish loading. Usually a network hiccup on the one-time
             ~40MB download. Every other tab works normally without it.
           </p>
           <button
@@ -534,7 +534,7 @@ export default function DashcamTab({
         />
         <label
           htmlFor="dashcam-video-input"
-          className="press active:scale-[0.98] rise-in group relative flex w-full cursor-pointer flex-col items-center justify-center gap-5 overflow-hidden rounded-3xl py-24 shadow-[0_8px_30px_rgba(var(--accent-rgb),0.12)] transition-all hover:shadow-[0_8px_40px_rgba(var(--accent-rgb),0.2)]"
+          className="press active:scale-[0.98] rise-in group relative flex w-full cursor-pointer flex-col items-center justify-center gap-5 overflow-hidden rounded-3xl py-24 shadow-[var(--shadow-1)] transition-colors hover:border-[var(--border-strong)]"
         >
           <div className="absolute inset-0 bg-gradient-to-br from-[var(--surface)] to-[var(--surface-2)]" />
           <div
@@ -542,7 +542,7 @@ export default function DashcamTab({
             style={{ background: "var(--brand-grad)" }}
           />
           <span
-            className="breathe relative grid h-24 w-24 place-items-center rounded-full text-[var(--on-accent)] shadow-[0_0_40px_rgba(var(--accent-rgb),0.4)]"
+            className="relative grid h-24 w-24 place-items-center rounded-full text-[var(--on-accent)] shadow-[var(--shadow-2)]"
             style={{ background: "var(--brand-grad)" }}
           >
             <Icon name="video" size={36} />
@@ -665,7 +665,7 @@ export default function DashcamTab({
             <span className={CONTROL_HINT}>
               Analyses just the shaded wedge ahead of the car. Roadside trees and shadows are the
               main source of wrong boxes, and they sit outside it. Turn this off for close-up clips
-              filmed standing over a pothole — those have no horizon, so the wedge would cut out the
+              filmed standing over a pothole, which have no horizon, so the wedge would cut out the
               subject.
             </span>
           </span>
@@ -711,7 +711,7 @@ export default function DashcamTab({
               />
             </label>
             <p className={CONTROL_HINT}>
-              Takes effect on the next frame — adjust mid-scan and watch the shaded area move.
+              Takes effect on the next frame. Adjust mid-scan and watch the shaded area move.
             </p>
           </div>
         )}
@@ -741,9 +741,9 @@ export default function DashcamTab({
           {sensitivity <= 0.22
             ? "Catches more, with more false alarms."
             : sensitivity >= 0.45
-              ? "Stricter — may miss some."
+              ? "Stricter, may miss some."
               : "Balanced."}{" "}
-          Takes effect on the next frame — adjust mid-scan, or Rescan to redo the clip.
+          Takes effect on the next frame. Adjust mid-scan, or Rescan to redo the clip.
         </span>
       </label>
 
@@ -764,12 +764,12 @@ export default function DashcamTab({
             <span className="t-sm block font-semibold">Higher accuracy (server)</span>
             <span className={CONTROL_HINT}>
               Runs {remoteModels.length || 2} detection models and merges the results. The two
-              disagree usefully — one is better on phone footage, the other on wide dashcam
+              disagree usefully: one is better on phone footage, the other on wide dashcam
               video. Uploads one image per frame, so it uses mobile data.
             </span>
             {remoteFellBack && (
               <span className="mt-1.5 block text-[12px] leading-relaxed text-[var(--warning)]">
-                The server didn&apos;t answer for at least one frame — those were scanned on
+                The server didn&apos;t answer for at least one frame, so those were scanned on
                 your device instead.
               </span>
             )}
@@ -805,7 +805,7 @@ export default function DashcamTab({
       {scanDone && frames.length === 0 && (
         <p className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-center text-[12px] leading-relaxed text-[var(--text-dim)]">
           No potholes found in this clip. If you can see one, raise the sensitivity above and
-          Rescan — distant potholes in wide footage score low.
+          Rescan. Distant potholes in wide footage score low.
         </p>
       )}
     </Shell>
@@ -814,7 +814,7 @@ export default function DashcamTab({
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="scroll-thin h-full overflow-y-auto px-4 py-5">
+    <div className="scroll-thin pb-navbar h-full overflow-y-auto px-4 py-5">
       <div className="mx-auto w-full max-w-lg">{children}</div>
     </div>
   );

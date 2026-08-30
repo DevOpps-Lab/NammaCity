@@ -536,8 +536,7 @@ SLA → filing; the **routing reveal** (a Chennai coordinate hits a Tier-1 ward,
 elsewhere degrades honestly to a general fallback); the **escalation refusal**
 (type "the corrupt minister ignores our ward" and watch it get stripped); the
 **dodge** (a jurisdiction-transfer reply re-files but the clock refuses to
-reset); **dedup**; the **Outbox** (intended vs. actual recipient); and the
-**Tamil toggle**.
+reset); **dedup**; and the **Outbox** (intended vs. actual recipient).
 
 State persists to Postgres, so a refresh or another device loses nothing.
 **Reset my ledger** (account menu) wipes your reports back to a clean slate.

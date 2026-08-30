@@ -65,7 +65,7 @@ export default function TrackVerify({ token }: { token: string }) {
           headline: "That didn't go through",
           detail:
             body?.error ??
-            "Something went wrong on our side. Your report is unchanged — please try again.",
+            "Something went wrong on our side. Your report is unchanged. Please try again.",
         });
         return;
       }
@@ -95,7 +95,7 @@ export default function TrackVerify({ token }: { token: string }) {
         style={{ background: "var(--brand-grad)" }}
       >
         <Icon name="camera" size={16} />
-        It&apos;s fixed — send an after-photo
+        It&apos;s fixed, send an after-photo
       </button>
     );
   }
@@ -106,8 +106,8 @@ export default function TrackVerify({ token }: { token: string }) {
         <div>
           <p className="text-[13px] font-bold leading-tight">Verify the repair</p>
           <p className="mt-1 text-[11px] leading-relaxed text-[var(--text-dim)]">
-            Photograph the same spot. We compare it with the original — same place,
-            problem gone — and close the report if it checks out.
+            Photograph the same spot. We compare it with the original for same place,
+            problem gone, and close the report if it checks out.
           </p>
         </div>
         <button

@@ -44,7 +44,7 @@ export function complaintTextToHtml(
     photoCid,
     subtitle: "Citizen-verified civic complaint",
     footer:
-      "Sent via NammaCity · This complaint is tracked publicly and will be marked resolved only when a resident confirms the repair with a photograph — not on a status update alone.",
+      "Sent via NammaCity · This complaint is tracked publicly and will be marked resolved only when a resident confirms the repair with a photograph, not on a status update alone.",
   });
 }
 

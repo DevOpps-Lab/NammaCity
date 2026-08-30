@@ -48,7 +48,7 @@ export function evaluateAfterPhoto(
   const reasoning: string[] = [];
 
   reasoning.push(
-    `Visual place match ${(placeMatch * 100).toFixed(0)}% — ${
+    `Visual place match ${(placeMatch * 100).toFixed(0)}%, ${
       placeMatch > 0.8
         ? "same location as the original report"
         : "location match is weak; the after-photo may be from a different spot"
@@ -88,7 +88,7 @@ export function evaluateAfterPhoto(
     `Detector no longer sees the defect (${(defectConfidence * 100).toFixed(0)}%).`
   );
   reasoning.push(
-    `But pothole detection recall is only ~${Math.round(DETECTOR_RECALL * 100)}% — a miss looks identical to a repair. This is evidence, not proof.`
+    `But pothole detection recall is only ~${Math.round(DETECTOR_RECALL * 100)}%, a miss looks identical to a repair. This is evidence, not proof.`
   );
   reasoning.push("A citizen must confirm. The system will not close this by itself.");
 
@@ -97,7 +97,7 @@ export function evaluateAfterPhoto(
     placeMatch,
     defectConfidence,
     autoClose: false,
-    headline: "Looks repaired — needs your confirmation",
+    headline: "Looks repaired, needs your confirmation",
     reasoning,
   };
 }

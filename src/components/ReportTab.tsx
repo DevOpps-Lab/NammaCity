@@ -15,7 +15,6 @@ import type { IssueCategory, CategorySource, Severity } from "@/lib/types";
 import { SEVERITY_OPTIONS } from "@/lib/severity";
 import { formatPlace } from "@/lib/place";
 import { CATEGORY_OPTIONS } from "@/lib/detect";
-import { t, type Lang } from "@/lib/i18n";
 
 export interface ConfirmedReport {
   image: ProcessedImage;
@@ -43,14 +42,12 @@ type Stage = "idle" | "analysing" | "identified" | "filing";
  * button they came to press.
  */
 export default function ReportTab({
-  lang,
   displayName,
   onConfirm,
   busy,
   initialFile,
   onInitialFileHandled,
 }: {
-  lang: Lang;
   /** First name only — a full "Aravind Kumar S" in a greeting reads like a form letter. */
   displayName: string;
   onConfirm: (c: ConfirmedReport) => void;
@@ -309,7 +306,7 @@ export default function ReportTab({
         )}
         <button
           onClick={() => fileRef.current?.click()}
-          className="press active:scale-[0.98] rise-in group relative flex w-full flex-col items-center justify-center gap-5 rounded-3xl overflow-hidden py-24 shadow-[0_8px_30px_rgba(var(--accent-rgb),0.12)] transition-all hover:shadow-[0_8px_40px_rgba(var(--accent-rgb),0.2)]"
+          className="press active:scale-[0.98] rise-in group relative flex w-full flex-col items-center justify-center gap-5 rounded-3xl overflow-hidden py-24 shadow-[var(--shadow-1)] transition-colors hover:border-[var(--border-strong)]"
         >
           {/* Background effects */}
           <div className="absolute inset-0 bg-gradient-to-br from-[var(--surface)] to-[var(--surface-2)]" />
@@ -317,16 +314,16 @@ export default function ReportTab({
           <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-[var(--accent)]/10 to-transparent" />
           
           <span
-            className="breathe relative grid h-24 w-24 place-items-center rounded-full text-[var(--on-accent)] shadow-[0_0_40px_rgba(var(--accent-rgb),0.4)]"
+            className="relative grid h-24 w-24 place-items-center rounded-full text-[var(--on-accent)] shadow-[var(--shadow-2)]"
             style={{ background: "var(--brand-grad)" }}
           >
             <Icon name="camera" size={36} />
             <div className="absolute inset-0 rounded-full border border-white/20" />
           </span>
           <div className="relative text-center">
-            <span className="block text-xl font-bold tracking-tight">{t(lang, "takePhoto")}</span>
+            <span className="block text-xl font-bold tracking-tight">Take a photo</span>
             <span className="mt-2 block max-w-[28ch] text-[13px] leading-relaxed text-[var(--text-dim)]">
-              {t(lang, "photoHint")}
+              Faces and number plates are found and covered before you file
             </span>
           </div>
         </button>
@@ -344,22 +341,23 @@ export default function ReportTab({
     return (
       <Shell>
         <div className="flex flex-col items-center justify-center py-24">
-          <div className="relative mb-8 h-20 w-20">
-            {/* Pulsing rings */}
-            <div className="absolute inset-0 animate-ping rounded-full bg-[var(--accent)]/20" />
-            <div className="absolute inset-2 animate-ping rounded-full bg-[var(--accent)]/40" style={{ animationDelay: "0.2s" }} />
-            
-            <div className="absolute inset-0 grid place-items-center rounded-full bg-[var(--surface)] shadow-[0_0_30px_rgba(var(--accent-rgb),0.2)]">
-              <Icon name="eye" size={32} className="text-[var(--accent)] animate-pulse" />
-            </div>
-            
-            {/* Orbiting dot */}
-            <div className="absolute inset-0 animate-spin" style={{ animationDuration: "2s" }}>
-              <div className="h-3 w-3 rounded-full bg-[var(--accent)] shadow-[0_0_10px_var(--accent)] -translate-y-1.5 translate-x-8" />
-            </div>
+          {/*
+            One indeterminate bar and the step name.
+
+            This replaced two ping rings, a spinning orbital dot, a pulsing icon
+            and a 30px accent glow, under a line reading "AI Vision & Location
+            Engine Active". Four simultaneous infinite loops communicated
+            nothing the step label was not already saying, and the label was
+            marketing copy about the implementation rather than a status a
+            person waiting could act on.
+          */}
+          <div className="mb-6 h-1 w-40 overflow-hidden rounded-full bg-[var(--surface-2)]">
+            <div className="indeterminate h-full w-1/3 rounded-full bg-[var(--accent)]" />
           </div>
           <p className="fade-in text-center text-[15px] font-semibold tracking-tight">{step}</p>
-          <p className="fade-in mt-2 text-center text-[12px] text-[var(--text-dim)]">AI Vision & Location Engine Active</p>
+          <p className="fade-in mt-2 text-center text-[12px] text-[var(--text-dim)]">
+            This usually takes a few seconds.
+          </p>
         </div>
       </Shell>
     );
@@ -388,7 +386,7 @@ export default function ReportTab({
             className="max-h-[38vh] w-full cursor-crosshair bg-[var(--surface)] object-contain"
           />
           <span className="absolute bottom-2 left-2 rounded bg-black/70 px-2 py-1 text-[10px] text-white">
-            {reblurring ? "Covering…" : t(lang, "tapToBlur")}
+            {reblurring ? "Covering…" : "Tap anything to cover it"}
           </span>
           {reblurring && (
             <span className="absolute right-2 top-2 h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
@@ -429,7 +427,7 @@ export default function ReportTab({
           ) : (
             <p className="mb-3 text-[11px] leading-relaxed text-[var(--text-faint)]">
               No faces or number plates detected. Detection can miss people who
-              are small, turned away or in shadow — tap anyone it missed before
+              are small, turned away or in shadow. Tap anyone it missed before
               filing.
             </p>
           )}
@@ -442,9 +440,7 @@ export default function ReportTab({
               </p>
               <p className="mt-0.5 truncate text-[19px] font-bold leading-tight">
                 {category
-                  ? CATEGORY_OPTIONS.find((o) => o.value === category)?.[
-                      lang === "ta" ? "ta" : "label"
-                    ]
+                  ? CATEGORY_OPTIONS.find((o) => o.value === category)?.label
                   : "Not identified"}
               </p>
               {llmResult?.reason && category && source !== "user" && (
@@ -480,7 +476,7 @@ export default function ReportTab({
                       : "border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--border-strong)]"
                   }`}
                 >
-                  {lang === "ta" ? o.ta : o.label}
+                  {o.label}
                 </button>
               ))}
             </div>
@@ -491,7 +487,7 @@ export default function ReportTab({
             <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-faint)]">
               Severity
               <span className="ml-1.5 font-normal normal-case text-[var(--text-faint)]">
-                {source === "user" ? "(choose one)" : "(AI estimate — tap to change)"}
+                {source === "user" ? "(choose one)" : "(AI estimate, tap to change)"}
               </span>
             </p>
             <div className="grid grid-cols-3 gap-1.5">
@@ -522,7 +518,7 @@ export default function ReportTab({
                 )
               ) : (
                 <span className="text-[var(--warning)]">
-                  Approximate — your device gave no location fix
+                  Approximate. Your device gave no location fix
                 </span>
               )}
             </Row>
@@ -545,7 +541,7 @@ export default function ReportTab({
               ) : resolved?.ok === false ? (
                 <span className="text-[var(--danger)]">
                   {resolved.kind === "unreachable"
-                    ? "Resolver unreachable — we will not guess a jurisdiction."
+                    ? "Resolver unreachable. We will not guess a jurisdiction."
                     : "No verified contact registry covers this location. We refuse to file blind."}
                 </span>
               ) : category ? (
@@ -573,7 +569,7 @@ export default function ReportTab({
                 }
               >
                 {image.manualReviewRequired
-                  ? "Automatic face / number-plate detection could not run — cover anything sensitive yourself."
+                  ? "Automatic face / number-plate detection could not run. Cover anything sensitive yourself."
                   : `${image.facesFound} face(s) and ${image.platesFound} number plate(s) auto-covered.`}
                 {regions.length > 0 && ` ${regions.length} area(s) you covered by hand.`}
               </p>
@@ -633,7 +629,7 @@ export default function ReportTab({
             onClick={reset}
             className="mt-2 w-full text-[11px] font-medium text-[var(--text-dim)] hover:text-[var(--text)]"
           >
-            {t(lang, "retake")}
+            Retake
           </button>
         </div>
       </div>
@@ -643,7 +639,7 @@ export default function ReportTab({
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="scroll-thin h-full overflow-y-auto px-4 py-5">
+    <div className="scroll-thin pb-navbar h-full overflow-y-auto px-4 py-5">
       <div className="mx-auto w-full max-w-lg">{children}</div>
     </div>
   );

@@ -86,7 +86,7 @@ export async function resolveAuthorityFull(
           ...routing,
           tier: 3,
           confidence: "low",
-          method: `LLM routing fallback for ${routing.cityName} — deterministic registry had no contact. confidence ${result.route.confidence.toFixed(2)}`,
+          method: `LLM routing fallback for ${routing.cityName}, deterministic registry had no contact. confidence ${result.route.confidence.toFixed(2)}`,
           authorities: [authority],
           ambiguityNote:
             "Contact resolved by LLM, not a verified primary source. Marked unverified in the outbox.",
@@ -99,7 +99,7 @@ export async function resolveAuthorityFull(
       console.warn(`[resolve-authority] LLM tier unavailable (${result.kind})`);
     } else if (result.ok) {
       console.info(
-        `[resolve-authority] LLM route for ${routing.cityName} rejected — confidence ${result.route.confidence.toFixed(2)} < ${LLM_MIN_CONFIDENCE}`
+        `[resolve-authority] LLM route for ${routing.cityName} rejected, confidence ${result.route.confidence.toFixed(2)} < ${LLM_MIN_CONFIDENCE}`
       );
     }
   }
@@ -113,7 +113,7 @@ export async function resolveAuthorityFull(
       ...routing,
       tier: 4,
       confidence: "low",
-      method: `No verified registry for ${place} and LLM routing unavailable — filed to a general municipal body (unverified).`,
+      method: `No verified registry for ${place} and LLM routing unavailable, filed to a general municipal body (unverified).`,
       authorities: [fallback],
       ambiguityNote:
         "Contact is a general municipal fallback, not a verified primary source. Marked unverified in the outbox.",

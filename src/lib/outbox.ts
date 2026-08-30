@@ -77,7 +77,7 @@ function redactionSentence(report: Report, r?: RedactionFacts): string {
   if (r.facesFound > 0) {
     return `${lead} ${r.facesFound} face(s) were detected and pixelated on the reporting device before transmission, and location metadata was stripped. Automatic detection is not exhaustive.`;
   }
-  return `${lead} It was scanned for faces on the reporting device and none were detected, so none were pixelated; location metadata was stripped. Automatic detection is not exhaustive — please treat any identifiable person in the image accordingly.`;
+  return `${lead} It was scanned for faces on the reporting device and none were detected, so none were pixelated; location metadata was stripped. Automatic detection is not exhaustive, please treat any identifiable person in the image accordingly.`;
 }
 
 /** What the on-device redaction pass actually achieved for this photo. */
@@ -124,7 +124,7 @@ export function composeComplaint(
     redactionSentence(report, redaction),
     ``,
     `This complaint is tracked publicly. It will be marked resolved only when a`,
-    `resident confirms the repair with a photograph from the same location — not`,
+    `resident confirms the repair with a photograph from the same location, not`,
     `on a status update alone.`,
   ]
     .filter(Boolean)
@@ -136,7 +136,7 @@ export function composeComplaint(
     at: now(),
     intendedTo: authority.email,
     actuallyTo: DEMO_SINK,
-    subject: `Civic complaint ${report.id} — ${report.category.replace(/_/g, " ")} at ${report.place}`,
+    subject: `Civic complaint ${report.id}, ${report.category.replace(/_/g, " ")} at ${report.place}`,
     body,
     reportId: report.id,
     recipientVerified: authority.verified,
@@ -172,9 +172,9 @@ export function composePostItem(report: Report, text: string): OutboxItem {
     id: `OUT-${seq++}`,
     kind: "post",
     at: now(),
-    intendedTo: "@chennaicorp (real handle — NOT tagged in demo)",
+    intendedTo: "@chennaicorp (real handle, NOT tagged in demo)",
     actuallyTo: DEMO_SOCIAL_HANDLE,
-    subject: `Public escalation — ${report.id}`,
+    subject: `Public escalation, ${report.id}`,
     body: text,
     reportId: report.id,
     recipientVerified: true,
@@ -215,7 +215,7 @@ export function composeRti(report: Report, authority: AuthorityRecord): OutboxIt
     at: now(),
     intendedTo: authority.email,
     actuallyTo: DEMO_SINK,
-    subject: `RTI application — status of complaint ${report.id}`,
+    subject: `RTI application, status of complaint ${report.id}`,
     body,
     reportId: report.id,
     recipientVerified: authority.verified,

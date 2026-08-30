@@ -46,7 +46,7 @@ export default function Correspondence({ reportId }: { reportId: string }) {
   if (entries.length === 0) {
     return (
       <p className="text-[11px] leading-relaxed text-[var(--text-faint)]">
-        Nothing sent yet. Seeded reports arrive without correspondence — file a
+        Nothing sent yet. Seeded reports arrive without correspondence. File a
         new report, or simulate a reply below, to populate this thread.
       </p>
     );

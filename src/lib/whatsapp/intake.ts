@@ -103,7 +103,7 @@ export async function findIntakeUserId(admin: SupabaseClient): Promise<string | 
 
 // ------------------------------------------------------------------ replies
 
-export const GREETING = `NammaCity — report a civic problem in one message.
+export const GREETING = `NammaCity. Report a civic problem in one message.
 
 1. Send a *photo* of the problem (pothole, garbage, sewage, streetlight, drain).
 2. Then share your *location*: tap the 📎 attach button → Location → Send your current location.
@@ -125,7 +125,7 @@ export async function handlePhoto(
 
   const existing = await getPending(admin, phoneHash);
   if (withinCooldown(existing)) {
-    return `Still working on your last photo — give it a few seconds, then share your location.`;
+    return `Still working on your last photo. Give it a few seconds, then share your location.`;
   }
 
   if (contentType && !contentType.startsWith("image/")) {
@@ -193,7 +193,7 @@ export async function handlePhoto(
   const redacted = await pixelateFaces(cleaned, faces);
   const facesBlurred = redacted.facesBlurred;
   if (faces.length && !redacted.ok) {
-    console.error("[whatsapp] faces were detected but pixelation failed — storing unredacted");
+    console.error("[whatsapp] faces were detected but pixelation failed, storing unredacted");
   }
 
   const intakeUserId = await getIntakeUserId(admin);
@@ -239,7 +239,7 @@ export async function handlePhoto(
 
   const what =
     confidence > 0
-      ? `Looks like *${categoryLabel(category)}*${reason ? ` — ${reason}` : ""}.`
+      ? `Looks like *${categoryLabel(category)}*${reason ? `: ${reason}` : ""}.`
       : `Photo received.`;
 
   return `${what}${note}
@@ -279,7 +279,7 @@ export async function handleLocation(
     return {
       reply: `Our location service is down for a moment, so we haven't filed this yet.
 
-Your photo is saved — reply with your location again in a minute.`,
+Your photo is saved. Reply with your location again in a minute.`,
     };
   }
 
@@ -311,7 +311,7 @@ Your photo is saved — reply with your location again in a minute.`,
     confidence: pending.categoryConfidence,
     areaFraction: 0,
     signals: [
-      `Submitted over WhatsApp — EXIF stripped and ${pending.facesBlurred} face(s) pixelated server-side (not on the sender's device)`,
+      `Submitted over WhatsApp. EXIF stripped and ${pending.facesBlurred} face(s) pixelated server-side (not on the sender's device)`,
       pending.reason ? `Gemini: ${pending.reason}` : `Category unconfirmed by vision`,
     ],
     lowConfidence: pending.categoryConfidence < 0.45,
@@ -381,7 +381,7 @@ Your photo is saved — reply with your location again in a minute.`,
   const unverified = authorities.some((a) => !a.verified);
 
   const lines = [
-    `✅ Filed as *${report.id}* — ${categoryLabel(report.category)}, severity ${report.severity}.`,
+    `✅ Filed as *${report.id}*: ${categoryLabel(report.category)}, severity ${report.severity}.`,
     ``,
     `📍 ${where}`,
     `🏛 Filed to: ${report.filedTo.join(", ")}`,
@@ -401,7 +401,7 @@ Your photo is saved — reply with your location again in a minute.`,
   if (token) lines.push(``, `Track it here:`, trackUrl(token));
   lines.push(
     ``,
-    `We'll message you here when the agency responds. This closes only on an after-photo showing the problem gone — you can send one from the link above at any time.`
+    `We'll message you here when the agency responds. This closes only on an after-photo showing the problem gone. You can send one from the link above at any time.`
   );
 
   return { reply: lines.join("\n"), report };
@@ -422,7 +422,7 @@ async function dispatchComplaints(
   if (!gmailConfigured()) return;
   const sink = process.env.DEMO_AUTHORITY_EMAIL;
   if (!sink) {
-    console.warn("[whatsapp] DEMO_AUTHORITY_EMAIL not set — complaint not sent");
+    console.warn("[whatsapp] DEMO_AUTHORITY_EMAIL not set, complaint not sent");
     return;
   }
 

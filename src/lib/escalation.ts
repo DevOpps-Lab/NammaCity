@@ -83,7 +83,7 @@ export function guardText(input: string): GuardResult {
         term: t.trim(),
         category: "political",
         reason:
-          "Political content is the documented arrest trigger (Agra, 2025) — the pothole was never the offence, the remark about the CM was.",
+          "Political content is the documented arrest trigger (Agra, 2025). The pothole was never the offence, the remark about the CM was.",
       });
     }
   }
@@ -127,7 +127,7 @@ export interface ComposedPost {
 
 const TEMPLATES = [
   (r: Report, days: number, sla: number) =>
-    `Complaint ${r.id} — ${r.place}.\nFiled ${fmt(r.createdAt)}. Still open after ${days} days.\nPublished service standard: ${sla} hours.`,
+    `Complaint ${r.id}, ${r.place}.\nFiled ${fmt(r.createdAt)}. Still open after ${days} days.\nPublished service standard: ${sla} hours.`,
   (r: Report, days: number, sla: number) =>
     `${days} days open. Complaint ${r.id}, ${r.place}.\nThe published commitment for this service is ${sla} hours.\nStatus: unresolved.`,
   (r: Report, days: number, sla: number) =>
@@ -189,8 +189,8 @@ export function composeUpdate(report: Report): ComposedPost {
 
   const LINES: Partial<Record<Report["status"], string>> = {
     acknowledged: `Update on ${report.id} (${report.place}): the authority has acknowledged this ${cat} complaint. The published clock keeps running.`,
-    transferred: `Update on ${report.id} (${report.place}): the agency says this ${cat} belongs to another department. Re-filed — the original clock is NOT reset.`,
-    claims_done: `Update on ${report.id} (${report.place}): the authority claims this ${cat} is fixed. Unverified — awaiting a resident's after-photo before it counts as closed.`,
+    transferred: `Update on ${report.id} (${report.place}): the agency says this ${cat} belongs to another department. Re-filed. The original clock is NOT reset.`,
+    claims_done: `Update on ${report.id} (${report.place}): the authority claims this ${cat} is fixed. Unverified, awaiting a resident's after-photo before it counts as closed.`,
     past_sla: `Update on ${report.id} (${report.place}): this ${cat} has now passed the authority's own published service standard, ${days} days on.`,
     escalated: `Update on ${report.id} (${report.place}): still unresolved after ${days} days, past the published standard.`,
     verified_fixed: `Resolved ✅ ${report.id} (${report.place}): a resident has confirmed this ${cat} is fixed with an after-photo. Citizen-verified, not just claimed.`,

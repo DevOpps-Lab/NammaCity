@@ -91,7 +91,7 @@ export function classifyReply(reply: InboundReply, report: Report): ClassifiedRe
         // The critical rule. Passing the buck must not buy time.
         resetsClock: false,
         autoResponse:
-          `Re: ${report.id} — noted. Re-filing to ${to ?? "the named agency"}. ` +
+          `Re: ${report.id}, noted. Re-filing to ${to ?? "the named agency"}. ` +
           `Please note the original complaint clock is unchanged; a transfer between agencies is not a resolution. ` +
           `Where responsibility is disputed, Bombay HC (13 Oct 2025) holds that agencies may not create "no-man's zones".`,
         note: `Transferred${to ? ` to ${to}` : ""}. Re-filed. SLA clock NOT reset.`,
@@ -105,9 +105,9 @@ export function classifyReply(reply: InboundReply, report: Report): ClassifiedRe
         nextStatus: "claims_done",
         resetsClock: false,
         autoResponse:
-          `Re: ${report.id} — thank you. This will be marked resolved once a resident ` +
+          `Re: ${report.id}, thank you. This will be marked resolved once a resident ` +
           `confirms with a photograph from the same location. Until then it remains open on the public ledger.`,
-        note: "Authority claims resolved. Awaiting citizen verification — not closed.",
+        note: "Authority claims resolved. Awaiting citizen verification, not closed.",
       };
 
     case "query":
@@ -116,7 +116,7 @@ export function classifyReply(reply: InboundReply, report: Report): ClassifiedRe
         nextStatus: "acknowledged",
         resetsClock: false,
         autoResponse:
-          `Re: ${report.id} — location: ${report.place} (${report.lat.toFixed(5)}, ${report.lng.toFixed(5)}). ` +
+          `Re: ${report.id}, location: ${report.place} (${report.lat.toFixed(5)}, ${report.lng.toFixed(5)}). ` +
           `Category: ${report.category.replace(/_/g, " ")}. Severity: ${report.severity}. ` +
           `Geotagged photograph was attached to the original complaint and is available on request.`,
         note: "Query answered automatically from the complaint record.",
@@ -128,7 +128,7 @@ export function classifyReply(reply: InboundReply, report: Report): ClassifiedRe
         nextStatus: "past_sla",
         resetsClock: false,
         autoResponse:
-          `Re: ${report.id} — recorded. A rejection without remedial action does not close the ` +
+          `Re: ${report.id}, recorded. A rejection without remedial action does not close the ` +
           `complaint on this ledger; it will remain visible with the stated reason.`,
         note: "Rejected by authority. Stays open publicly with the reason recorded.",
       };

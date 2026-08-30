@@ -38,7 +38,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Track your report — NammaCity",
+  title: "Track your report on NammaCity",
   robots: { index: false, follow: false },
 };
 
@@ -152,7 +152,7 @@ export default async function TrackPage({
                     ))}
                   </span>
                 ) : (
-                  report.filedTo.join(", ") || "—"
+                  report.filedTo.join(", ") || "None recorded"
                 )}
               </Row>
               <Row label="Deadline">
@@ -214,14 +214,14 @@ export default async function TrackPage({
         {report.source === "whatsapp" && (
           <p className="mt-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-[11px] leading-relaxed text-[var(--text-dim)]">
             Submitted over WhatsApp. Faces were pixelated and location metadata stripped on
-            our server before this photo was stored — but unlike a report filed in the app,
+            our server before this photo was stored. But unlike a report filed in the app,
             the unedited original did reach our server first, and automatic face detection is
             not exhaustive.
           </p>
         )}
 
         <p className="mt-3 text-center text-[11px] leading-relaxed text-[var(--text-faint)]">
-          Anyone with this link can view this report, and can close it — but only with an
+          Anyone with this link can view this report, and can close it, but only with an
           after-photo that passes a check showing the same place with the problem gone. An
           authority saying &ldquo;done&rdquo; is not enough on its own.
         </p>

@@ -83,7 +83,7 @@ const DEFAULT: SLAResult = {
   hours: 72,
   resolutionTarget: "72 hours",
   department: "Municipal Department",
-  source: "Default — no matching Citizen Charter SLA located for this category",
+  source: "Default, no matching Citizen Charter SLA located for this category",
 };
 
 /**
