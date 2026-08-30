@@ -615,14 +615,15 @@ button {
   animation: slide-in-right 260ms var(--ease-out) both;
 }
 
-/* Tactile press for buttons — a slight squash on tap reads as "pressed". */
+/* Tactile press for buttons — a slight squash on tap reads as "pressed".
+   better-ui principle 9: 0.96 exactly, never below 0.95. */
 .press {
   transition:
     transform 120ms var(--ease-out),
     filter 120ms var(--ease-out);
 }
 .press:active {
-  transform: scale(0.965);
+  transform: scale(0.96);
 }
 
 /* Card surface: consistent radius + elevation + hover, in one class. */
@@ -631,6 +632,231 @@ button {
   border: 1px solid var(--border);
   border-radius: 1rem;
   box-shadow: var(--shadow-1);
+}
+
+/* ---------------------------------------------------------------------------
+   PRIMITIVE LAYER
+
+   The shared vocabulary the redesigned screens are built from. Every screen
+   consumes these rather than re-deriving a button or a label inline. Values
+   come from the four skill files in the project root:
+
+   - better-typography: one semantic scale, headings descend by level, unitless
+     line-height (~1.1 headings, 1.5-1.6 body), letter-spacing by size, tabular
+     numbers on anything that changes, natural case + text-transform.
+   - better-ui: one radius scale (--radius family below), shadows for
+     elevation and borders for structure, scale(0.96) on press, icon stroke
+     matched to text weight (set per-component).
+   - better-accessibility: real focus-visible rings (already defined above),
+     44px hit targets on interactive primitives.
+   - frontend-design: Archivo display + IBM Plex Mono for data. One amber
+     accent, locked.
+
+   RADIUS SCALE (Shape Consistency Lock): chips 6px, controls 10px, cards 14px.
+   That is the whole documented rule; do not introduce a fourth value.
+--------------------------------------------------------------------------- */
+:root {
+  --radius-chip: 6px;
+  --radius-control: 10px;
+  --radius-card: 14px;
+}
+
+/* Type scale. Class names describe ROLE, not size (better-typography 5). */
+.t-display {
+  font-size: clamp(1.95rem, 6vw, 2.35rem);
+  line-height: 1.06;
+  font-weight: 800;
+  letter-spacing: -0.022em;
+  text-wrap: balance;
+}
+.t-title {
+  font-size: 1.375rem;
+  line-height: 1.16;
+  font-weight: 800;
+  letter-spacing: -0.014em;
+  text-wrap: balance;
+}
+.t-head {
+  font-size: 1.0625rem;
+  line-height: 1.32;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+}
+.t-body {
+  font-size: 0.9375rem;
+  line-height: 1.55;
+}
+.t-sm {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+/* Micro-label: mono, uppercase via text-transform (never typed in caps),
+   positive tracking so the caps do not crowd. Floor is 12px. */
+.t-micro {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-faint);
+}
+/* Any value that updates in place: SLA counters, confidence %, complaint refs. */
+.tnum {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+.measure {
+  max-width: 62ch;
+}
+
+/* Buttons. Primary carries the amber; ghost and outline are the quiet paths.
+   min-height 44px is the hit-target floor. Named transition properties only
+   (better-ui 11: never transition: all). */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding-inline: 1.125rem;
+  border-radius: var(--radius-control);
+  border: 1px solid transparent;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    transform 120ms var(--ease-out),
+    background-color 150ms var(--ease-out),
+    border-color 150ms var(--ease-out),
+    color 150ms var(--ease-out);
+}
+.btn:active {
+  transform: scale(0.96);
+}
+.btn-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: var(--shadow-2);
+}
+.btn-primary:hover {
+  background: var(--accent-hover);
+}
+.btn-outline {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.btn-outline:hover {
+  border-color: var(--text-faint);
+  background: var(--surface-2);
+}
+.btn-ghost {
+  color: var(--text-dim);
+}
+.btn-ghost:hover {
+  color: var(--text);
+  background: var(--hover-overlay);
+}
+.btn:disabled,
+.btn[aria-disabled="true"] {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text-faint);
+  box-shadow: none;
+  cursor: not-allowed;
+  transform: none;
+}
+.btn-lg {
+  min-height: 52px;
+  font-size: 0.9375rem;
+  font-weight: 800;
+}
+
+/* Text field. Label ABOVE (better-accessibility 6), 16px so iOS does not zoom
+   (better-typography 15), error BELOW via aria-describedby in the component. */
+.field {
+  width: 100%;
+  min-height: 46px;
+  padding: 0.75rem 0.8125rem;
+  font-size: 16px;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  font-family: inherit;
+}
+.field::placeholder {
+  color: var(--text-faint);
+}
+.field[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+/* Segmented control — severity, feed sort, list filters. Track is the border
+   grid; the selected item is the amber fill. */
+.seg {
+  display: grid;
+  gap: 6px;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+}
+.seg > button {
+  min-height: 44px;
+  padding-inline: 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    background-color 140ms var(--ease-out),
+    border-color 140ms var(--ease-out),
+    color 140ms var(--ease-out);
+}
+.seg > button[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}
+
+/* Chip / tag — status flags, confidence, "unverified". Mono, hairline border,
+   colour set inline per state. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.1875rem 0.4375rem;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-chip);
+}
+
+/* Panel — the redesigned card. 14px radius; 8px padding gives a concentric
+   6-10px inner surface (better-ui 1). */
+.panel {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-1);
+}
+
+/* One entrance, staggered by ~100ms via inline animation-delay where sequence
+   communicates hierarchy (better-ui 5). Not for high-frequency interactions. */
+@media (prefers-reduced-motion: no-preference) {
+  .enter {
+    animation: rise-in 420ms var(--ease-out) both;
+  }
 }
 .card-hover {
   transition:
