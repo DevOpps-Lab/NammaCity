@@ -47,32 +47,23 @@ export default function TopBar({
   return (
     // pt-safe keeps the bar clear of the Dynamic Island while the surface
     // colour still fills the notch area, so there's no seam above the header.
-    <header className="pt-safe px-safe relative z-[var(--z-overlay)] shrink-0 border-b border-[var(--border)] bg-[var(--surface)]/85 shadow-[0_4px_30px_rgba(0,0,0,0.05)] backdrop-blur-xl">
+    <header className="pt-safe px-safe relative z-[var(--z-overlay)] shrink-0 border-b border-[var(--border)] bg-[var(--surface)]/92 backdrop-blur-xl">
       <div className="flex h-14 items-center gap-1.5 px-2 sm:gap-2 sm:px-4">
-        {/* Brand */}
         <div className="flex shrink-0 items-center gap-2">
           <span
-            className="grid h-8 w-8 place-items-center rounded-xl text-[var(--on-accent)] shadow-[var(--shadow-1)]"
-            style={{ background: "var(--brand-grad)" }}
+            aria-hidden
+            className="grid h-8 w-8 place-items-center rounded-[var(--radius-control)] bg-[var(--accent)] text-[var(--on-accent)]"
           >
             <Icon name="shield" size={17} />
           </span>
           <div className="hidden sm:block">
-            <p className="text-[13px] font-semibold leading-none tracking-tight">
-              NammaCity
-            </p>
-            {/* 10px was below the 12px floor this product now holds itself to —
-                a micro-label is exactly where contrast and size can least
-                afford to be borderline. */}
-            <p className="mt-1 text-[12px] leading-none text-[var(--text-faint)]">
-              Chennai
-            </p>
+            <p className="text-[13px] font-bold leading-none tracking-tight">NammaCity</p>
+            <p className="t-micro mt-1 leading-none">Chennai</p>
           </div>
         </div>
 
-        {/* Stats — the honest numbers. The two actionable ones always show; the
-            verified count is redundant with the headline % so it drops on the
-            narrowest screens to keep the bar uncramped. */}
+        {/* The two actionable counts always show; the verified count is
+            redundant with the desktop rate so it drops on the narrowest bar. */}
         <div className="ml-0.5 flex min-w-0 items-center gap-1 overflow-x-auto no-bar sm:ml-1 sm:gap-1.5">
           <Stat label={t(lang, "open")} value={stats.open} tone="var(--accent)" />
           <Stat label={t(lang, "pastSla")} value={stats.breached} tone="var(--danger)" />
@@ -85,21 +76,18 @@ export default function TopBar({
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          {/* Verified vs claimed — the whole thesis, as one number */}
-          <div
-            className="mr-1 hidden text-right md:block"
-            title="Citizen-verified closures only. Authority claims are excluded — that gap is the point."
+          {/* Verified fix rate, desktop only. The full verified-vs-claimed pair
+              lives at the top of My Reports, which is where a phone sees it. */}
+          <p
+            className="tnum mr-1.5 hidden text-[15px] font-bold leading-none text-[var(--success)] md:block"
+            title={`${stats.fixRate}% of reports have been closed on a citizen's photograph. ${stats.claimedRate}% were merely claimed fixed by the authority.`}
+            aria-label={`Citizen-verified fix rate ${stats.fixRate} percent, against ${stats.claimedRate} percent claimed by authorities`}
           >
-            <p className="text-[15px] font-bold leading-none tabular-nums text-[var(--success)]">
-              {stats.fixRate}%
-            </p>
-            <p className="mt-0.5 text-[9px] leading-none text-[var(--text-faint)]">
-              verified · {stats.claimedRate}% claimed
-            </p>
-          </div>
+            {stats.fixRate}%
+          </p>
 
           <IconBtn label="Switch language" onClick={onToggleLang}>
-            <span className="text-[11px] font-semibold">
+            <span className="text-[12px] font-semibold">
               {lang === "en" ? "தமிழ்" : "EN"}
             </span>
           </IconBtn>
@@ -112,9 +100,9 @@ export default function TopBar({
             onClick={onToggleDemo}
             aria-pressed={demo}
             title="Compress time so deadlines arrive during a demo"
-            className={`press flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold transition-colors ${
+            className={`press flex h-10 items-center gap-1.5 rounded-[var(--radius-control)] px-2.5 text-[12px] font-semibold transition-colors ${
               demo
-                ? "bg-[var(--warning)] text-[var(--on-accent)] shadow-[var(--shadow-1)]"
+                ? "bg-[var(--warning)] text-[var(--on-accent)]"
                 : "border border-[var(--border)] text-[var(--text-dim)] hover:border-[var(--border-strong)] hover:text-[var(--text)]"
             }`}
           >
@@ -125,16 +113,22 @@ export default function TopBar({
           <IconBtn label="Agent trace" onClick={onToggleTrace}>
             <Icon name="activity" size={17} />
             {traceCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-2.5 w-2.5">
+              <span aria-hidden className="absolute -right-1 -top-1 flex h-2.5 w-2.5">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--success)] opacity-70" />
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full border-2 border-[var(--surface)] bg-[var(--success)]" />
               </span>
             )}
           </IconBtn>
 
-          <span className="mx-0.5 hidden h-6 w-px bg-[var(--border)] sm:block" />
+          <span aria-hidden className="mx-0.5 hidden h-6 w-px bg-[var(--border)] sm:block" />
 
-          <UserMenu displayName={displayName} email={email} avatarUrl={avatarUrl} onReset={onReset} onSeed={onSeed} />
+          <UserMenu
+            displayName={displayName}
+            email={email}
+            avatarUrl={avatarUrl}
+            onReset={onReset}
+            onSeed={onSeed}
+          />
         </div>
       </div>
     </header>
@@ -154,16 +148,14 @@ function Stat({
 }) {
   return (
     <div
-      className={`flex shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 transition-colors hover:border-[var(--border-strong)] sm:px-2.5 ${className}`}
+      className={`flex shrink-0 items-center gap-1.5 rounded-[var(--radius-chip)] border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 sm:px-2.5 ${className}`}
     >
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: tone }} />
+      <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: tone }} />
       <div>
-        <p className="text-[13px] font-bold leading-none tabular-nums" style={{ color: tone }}>
+        <p className="tnum text-[13px] font-bold leading-none" style={{ color: tone }}>
           {value}
         </p>
-        <p className="mt-0.5 whitespace-nowrap text-[9px] leading-none text-[var(--text-faint)]">
-          {label}
-        </p>
+        <p className="t-micro mt-1 whitespace-nowrap leading-none">{label}</p>
       </div>
     </div>
   );
@@ -187,11 +179,11 @@ function IconBtn({
       onClick={onClick}
       aria-label={label}
       title={label}
-      className={`press relative grid h-9 min-w-9 place-items-center rounded-lg border border-[var(--border)] px-2 text-[var(--text-dim)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text)] ${className}`}
+      className={`press relative grid h-10 min-w-10 place-items-center rounded-[var(--radius-control)] border border-[var(--border)] px-2 text-[var(--text-dim)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text)] ${className}`}
     >
       {children}
       {badge !== undefined && badge > 0 && (
-        <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--accent)] px-1 text-[9px] font-bold text-[var(--on-accent)] tabular-nums">
+        <span className="tnum absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--accent)] px-1 text-[10px] font-bold text-[var(--on-accent)]">
           {badge > 99 ? "99+" : badge}
         </span>
       )}
