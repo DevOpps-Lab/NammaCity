@@ -199,6 +199,7 @@ export default function Home() {
             <ReportList
               reports={store.myReports}
               threadCounts={threadCounts}
+              stats={stats}
               onSelect={(r) => setSelected(r)}
             />
           )}
