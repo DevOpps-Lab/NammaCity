@@ -189,7 +189,10 @@ function pointInWard(w) {
  * bake in exactly the lie the product exists to expose.
  */
 function lifecycle(createdAt, slaHours) {
-  const deadline = createdAt + slaHours * HOUR;
+  // Every `at` below lands in a bigint column, so each one is rounded at the
+  // point it is computed rather than trusting a float to survive the insert.
+  const t = (ms) => Math.round(ms);
+  const deadline = t(createdAt + slaHours * HOUR);
   const ev = [
     { kind: "reported", at: createdAt, detail: "Reported by citizen" },
     { kind: "filed", at: createdAt + 2 * 60_000, detail: "Filed to responsible agencies" },
@@ -198,7 +201,7 @@ function lifecycle(createdAt, slaHours) {
 
   if (roll < 0.14) return { status: "filed", ev, deadline };
 
-  const ackAt = createdAt + (2 + Math.random() * 30) * HOUR;
+  const ackAt = t(createdAt + (2 + Math.random() * 30) * HOUR);
   ev.push({ kind: "acknowledged", at: ackAt, detail: "Acknowledged by authority. Clock continues." });
 
   if (roll < 0.24) return { status: "acknowledged", ev, deadline };
@@ -206,7 +209,7 @@ function lifecycle(createdAt, slaHours) {
   if (roll < 0.32) {
     ev.push({
       kind: "jurisdiction_transfer",
-      at: ackAt + 12 * HOUR,
+      at: t(ackAt + 12 * HOUR),
       detail: "Agency says it belongs to another department. Re-filed, clock not reset.",
     });
     return { status: "transferred", ev, deadline };
@@ -215,18 +218,18 @@ function lifecycle(createdAt, slaHours) {
   if (roll < 0.56) {
     ev.push({
       kind: "claims_done",
-      at: ackAt + (12 + Math.random() * 96) * HOUR,
+      at: t(ackAt + (12 + Math.random() * 96) * HOUR),
       detail: "Authority claims resolved. Awaiting citizen verification, not closed.",
     });
     return { status: "claims_done", ev, deadline };
   }
 
   if (roll < 0.78) {
-    const claimAt = ackAt + (12 + Math.random() * 72) * HOUR;
+    const claimAt = t(ackAt + (12 + Math.random() * 72) * HOUR);
     ev.push({ kind: "claims_done", at: claimAt, detail: "Authority claims resolved." });
     ev.push({
       kind: "verified_fixed",
-      at: claimAt + (6 + Math.random() * 96) * HOUR,
+      at: t(claimAt + (6 + Math.random() * 96) * HOUR),
       detail: "Verified fixed by a resident's photograph",
     });
     return { status: "verified_fixed", ev, deadline };
@@ -239,7 +242,7 @@ function lifecycle(createdAt, slaHours) {
   });
   if (roll < 0.9) return { status: "past_sla", ev, deadline };
 
-  ev.push({ kind: "escalated", at: deadline + 6 * HOUR, detail: "Published to the public ledger" });
+  ev.push({ kind: "escalated", at: t(deadline + 6 * HOUR), detail: "Published to the public ledger" });
   return { status: "escalated", ev, deadline };
 }
 
@@ -307,13 +310,15 @@ async function main() {
     return { w, ...pointInWard(w) };
   });
 
-  for (let i = 0; i < COUNT; i++) {
+  let made = 0;
+  for (let guard = 0; made < COUNT && guard < COUNT * 6; guard++) {
     // Pick the day first, then push the time of day onto it, so the hour and
     // weekday shapes survive instead of being averaged away.
     const daysAgo = Math.floor(Math.random() * (span / DAY));
     const d = new Date(now - daysAgo * DAY);
     d.setHours(pickIndex(HOUR_WEIGHT), Math.floor(Math.random() * 60), 0, 0);
     if (Math.random() > DOW_WEIGHT[d.getDay()] / 1.1) continue;
+    const i = made++;
 
     const createdAt = d.getTime();
     const category = pick(seasonalMix(d.getMonth()));

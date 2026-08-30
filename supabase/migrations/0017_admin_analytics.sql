@@ -122,33 +122,39 @@ begin
     raise exception 'not authorised' using errcode = '42501';
   end if;
 
+  -- Aggregated first, sorted second.
+  --
+  -- The sort has to happen OUTSIDE the aggregate: ordering by an expression
+  -- over r.routing while grouping by a different coalesce of the same column is
+  -- a 42803, because to Postgres those are two unrelated expressions and only
+  -- one of them is in the GROUP BY.
   return query
-  select
-    coalesce(r.routing ->> 'ward', 'unknown')                          as ward,
-    coalesce(r.routing ->> 'zoneName', r.routing ->> 'cityName', '-')  as zone,
-    count(*)::bigint                                                   as total,
-    count(*) filter (where r.status in ('past_sla', 'escalated'))::bigint,
-    count(*) filter (where r.status = 'claims_done')::bigint,
-    count(*) filter (where r.status = 'verified_fixed')::bigint,
-    round(
-      100.0 * count(*) filter (where r.status in ('past_sla', 'escalated'))
-            / nullif(count(*), 0),
-      1
-    )
-  from public.reports r
-  where r.inserted_at >= coalesce(p_from, '-infinity'::timestamptz)
-    and r.inserted_at <  coalesce(p_to,    'infinity'::timestamptz)
-    and (p_category is null or r.category = p_category)
-    and (p_include_sim or r.is_seed = false)
-  group by 1, 2
+  select *
+  from (
+    select
+      coalesce(r.routing ->> 'ward', 'unknown')                          as ward,
+      coalesce(r.routing ->> 'zoneName', r.routing ->> 'cityName', '-')  as zone,
+      count(*)::bigint                                                   as total,
+      count(*) filter (where r.status in ('past_sla', 'escalated'))::bigint as breached,
+      count(*) filter (where r.status = 'claims_done')::bigint            as claimed,
+      count(*) filter (where r.status = 'verified_fixed')::bigint         as verified,
+      round(
+        100.0 * count(*) filter (where r.status in ('past_sla', 'escalated'))
+              / nullif(count(*), 0),
+        1
+      )                                                                   as breach_rate
+    from public.reports r
+    where r.inserted_at >= coalesce(p_from, '-infinity'::timestamptz)
+      and r.inserted_at <  coalesce(p_to,    'infinity'::timestamptz)
+      and (p_category is null or r.category = p_category)
+      and (p_include_sim or r.is_seed = false)
+    group by 1, 2
+  ) w
   -- Numeric wards sort numerically. `routing ->> 'ward'` coerces a JSON number
   -- to text, so a plain sort puts ward 10 before ward 2.
   order by
-    case when coalesce(r.routing ->> 'ward', '') ~ '^\d+$'
-         then (r.routing ->> 'ward')::int
-         else 2147483647
-    end,
-    1;
+    case when w.ward ~ '^\d+$' then w.ward::int else 2147483647 end,
+    w.ward;
 end;
 $$;
 
