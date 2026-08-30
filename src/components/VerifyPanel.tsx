@@ -219,7 +219,7 @@ export default function VerifyPanel({
                 >
                   {VERIFY_SCENARIOS[k].label}
                   {k === "missed" && (
-                    <span className="ml-2 rounded bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">
+                    <span className="ml-2 rounded bg-[var(--warning)]/20 px-1.5 py-0.5 text-[9px] font-semibold text-[var(--warning)]">
                       the hard case
                     </span>
                   )}
@@ -242,13 +242,13 @@ export default function VerifyPanel({
             <div
               className={`rounded-xl border p-3 ${
                 verdict === "likely_repaired" || manual
-                  ? "border-emerald-500/30 bg-emerald-500/10"
-                  : "border-red-500/30 bg-red-500/10"
+                  ? "border-[var(--success)]/30 bg-[var(--success)]/10"
+                  : "border-[var(--danger)]/30 bg-[var(--danger)]/10"
               }`}
             >
               <p
                 className={`text-sm font-semibold ${
-                  verdict === "likely_repaired" || manual ? "text-emerald-700" : "text-red-700"
+                  verdict === "likely_repaired" || manual ? "text-[var(--success)]" : "text-[var(--danger)]"
                 }`}
               >
                 {headline}

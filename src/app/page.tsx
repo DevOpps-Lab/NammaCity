@@ -199,6 +199,7 @@ export default function Home() {
             <ReportList
               reports={store.myReports}
               threadCounts={threadCounts}
+              stats={stats}
               onSelect={(r) => setSelected(r)}
             />
           )}
@@ -238,7 +239,7 @@ export default function Home() {
 
                 <div className="pointer-events-none absolute bottom-3 left-3 z-[var(--z-overlay)] hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]/95 p-2.5 backdrop-blur md:block">
                   <LegendRow color="var(--danger)" label="Past deadline" />
-                  <LegendRow color="#8a9c8f" label="Claimed fixed — unverified" hollow />
+                  <LegendRow color="#9aa8a0" label="Claimed fixed — unverified" hollow />
                   <LegendRow color="var(--success)" label="Citizen-verified" />
                   <p className="mt-1.5 max-w-[20ch] border-t border-[var(--border)] pt-1.5 text-[9px] leading-relaxed text-[var(--text-faint)]">
                     Community-wide. You can open anyone&apos;s report; only the

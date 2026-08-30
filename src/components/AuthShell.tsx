@@ -3,9 +3,10 @@ import type { ReactNode } from "react";
 /**
  * Two-column auth shell.
  *
- * The left column is not decoration — it's the argument. Anyone signing in
- * should know within five seconds why this exists and isn't just another
- * complaint app, so the measured resolution gap leads.
+ * The left column is the argument, not decoration: anyone signing in should know
+ * within a few seconds why this exists and is not just another complaint app.
+ * Three published figures carry that on their own, so there is no illustration,
+ * no glow and no chart behind them.
  */
 export default function AuthShell({
   title,
@@ -17,110 +18,71 @@ export default function AuthShell({
   children: ReactNode;
 }) {
   return (
-    <div className="scroll-thin flex flex-1 overflow-y-auto">
+    <div className="scroll-thin flex flex-1 overflow-y-auto bg-[var(--bg)]">
       {/* --- argument column (desktop only) --- */}
-      <aside className="relative hidden w-[46%] shrink-0 flex-col justify-between overflow-hidden border-r border-[var(--border)] bg-[var(--surface)] p-10 lg:flex xl:p-14">
-        {/* Slow-drifting glow behind the grid. Transform-only, so it composites
-            on the GPU and costs nothing on a laptop driving a projector. */}
-        <div
-          aria-hidden
-          className="drift pointer-events-none absolute -left-1/4 -top-1/3 h-[70%] w-[90%] rounded-full opacity-40 blur-3xl"
-          style={{
-            background:
-              "radial-gradient(circle, color-mix(in srgb, var(--accent) 42%, transparent) 0%, transparent 68%)",
-          }}
-        />
-
-        {/* subtle map-grid texture */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-[0.22]"
-          style={{
-            backgroundImage:
-              "linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px)",
-            backgroundSize: "44px 44px",
-            maskImage: "radial-gradient(ellipse at 30% 20%, black, transparent 72%)",
-          }}
-        />
-
-        <div className="relative">
-          <div className="rise-in">
-            <Wordmark />
-          </div>
-          <p
-            className="rise-in mt-8 max-w-md text-[22px] font-semibold leading-snug text-[var(--text)] xl:text-[26px]"
+      <aside className="hidden w-[46%] shrink-0 flex-col justify-between border-r border-[var(--border)] bg-[var(--surface)] p-10 lg:flex xl:p-14">
+        <div>
+          <Wordmark />
+          <h2
+            className="enter t-title mt-9 max-w-md"
             style={{ animationDelay: "80ms" }}
           >
-            Filing a complaint is solved.
-            <br />
+            Filing a complaint is easy.{" "}
             <span className="text-[var(--text-dim)]">
-              Getting it actually fixed is not.
+              Getting it closed honestly is not.
             </span>
-          </p>
+          </h2>
           <p
-            className="rise-in mt-4 max-w-md text-[13px] leading-relaxed text-[var(--text-dim)]"
-            style={{ animationDelay: "160ms" }}
+            className="enter t-sm measure mt-3.5 text-[var(--text-dim)]"
+            style={{ animationDelay: "150ms" }}
           >
             Indian civic systems let the accused department close its own ticket.
-            CivicAgent makes closure verifiable by the citizen instead — and
-            attaches consequence to silence.
+            NammaCity holds a report open until a resident photographs the repair.
           </p>
         </div>
 
-        <div className="relative mt-10">
-          <p
-            className="rise-in mb-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-faint)]"
-            style={{ animationDelay: "240ms" }}
-          >
-            Measured resolution rates
-          </p>
-          <StatRow
-            label="BBMP Sahaaya, Bengaluru"
-            detail="11,785 reported · 6 resolved"
-            value="0.05%"
-            tone="danger"
-            width={1}
-            delay={320}
-          />
-          <StatRow
-            label="FixMyStreet UK"
-            detail="independently measured"
-            value="34%"
-            tone="accent"
-            width={34}
-            delay={420}
-          />
-          <StatRow
-            label="Swachhata / MCD 311"
-            detail="self-reported by the authority"
-            value="93–95%"
-            tone="dim"
-            width={94}
-            dashed
-            delay={520}
-          />
-          <p
-            className="rise-in mt-4 max-w-md text-[11px] leading-relaxed text-[var(--text-faint)]"
-            style={{ animationDelay: "640ms" }}
-          >
-            UK councils are not three times better than Indian ULBs. The
-            difference is who is allowed to mark the ticket closed.
-          </p>
-        </div>
+        <dl className="mt-10">
+          {LEDGER.map((row, i) => (
+            <div
+              key={row.label}
+              className="enter flex items-baseline justify-between gap-6 border-t border-[var(--border)] py-3.5 last:border-b"
+              style={{ animationDelay: `${260 + i * 90}ms` }}
+            >
+              <div>
+                <dt className="t-sm font-semibold">{row.label}</dt>
+                <dd className="mt-0.5 text-[12px] leading-snug text-[var(--text-faint)]">
+                  {row.detail}
+                </dd>
+              </div>
+              <dd
+                className="tnum shrink-0 text-[18px] font-semibold leading-none"
+                style={{ color: row.color }}
+              >
+                {row.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+
+        <p
+          className="enter t-sm measure mt-6 text-[var(--text-faint)]"
+          style={{ animationDelay: "560ms" }}
+        >
+          UK councils are not three times better than Indian municipal bodies.
+          The difference is who is allowed to mark the ticket closed.
+        </p>
       </aside>
 
       {/* --- form column --- */}
       <main className="flex min-w-0 flex-1 items-center justify-center px-5 py-10 sm:px-8">
         <div className="w-full max-w-[380px]">
-          <div className="rise-in lg:hidden">
+          <div className="lg:hidden">
             <Wordmark />
           </div>
 
-          <h1 className="rise-in mt-8 text-[26px] font-bold tracking-tight text-[var(--text)] lg:mt-0">
-            {title}
-          </h1>
+          <h1 className="enter t-display mt-9 lg:mt-0">{title}</h1>
           <p
-            className="rise-in mb-7 mt-1.5 text-[13px] leading-relaxed text-[var(--text-dim)]"
+            className="enter t-sm measure mb-7 mt-2 text-[var(--text-dim)]"
             style={{ animationDelay: "60ms" }}
           >
             {subtitle}
@@ -128,91 +90,62 @@ export default function AuthShell({
 
           {children}
 
-          <p
-            className="rise-in mt-8 border-t border-[var(--border)] pt-5 text-[11px] leading-relaxed text-[var(--text-faint)]"
+          <div
+            className="enter mt-8 flex items-start gap-2.5 border-t border-[var(--border)] pt-5"
             style={{ animationDelay: "300ms" }}
           >
-            Demo build. Nothing is sent to a real government address — complaints
-            are composed in full and routed to a sandboxed inbox.
-          </p>
+            <span
+              aria-hidden
+              className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded-[3px] border border-[var(--border-strong)] bg-black"
+            />
+            <p className="t-micro leading-relaxed">
+              Faces and number plates are covered before anything is filed
+            </p>
+          </div>
         </div>
       </main>
     </div>
   );
 }
 
+const LEDGER = [
+  {
+    label: "BBMP Sahaaya, Bengaluru",
+    detail: "11,785 complaints logged in five weeks. Six were resolved.",
+    value: "0.05%",
+    color: "var(--danger)",
+  },
+  {
+    label: "FixMyStreet, United Kingdom",
+    detail: "Measured independently, by the people who filed the reports.",
+    value: "34%",
+    color: "var(--success)",
+  },
+  {
+    label: "Swachhata and MCD 311",
+    detail: "Self reported by the departments that receive the complaints.",
+    value: "93 to 95%",
+    color: "var(--text-faint)",
+  },
+];
+
 function Wordmark() {
   return (
-    <div className="flex items-center gap-2.5">
-      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--accent)]">
+    <div className="enter flex items-center gap-2.5">
+      <span className="flex h-8 w-8 items-center justify-center rounded-[8px] bg-[var(--accent)]">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden>
           <path
             d="M12 21s7-5.686 7-11a7 7 0 1 0-14 0c0 5.314 7 11 7 11Z"
-            stroke="white"
+            stroke="var(--on-accent)"
             strokeWidth="2"
             strokeLinejoin="round"
           />
-          <circle cx="12" cy="10" r="2.5" fill="white" />
+          <circle cx="12" cy="10" r="2.5" fill="var(--on-accent)" />
         </svg>
       </span>
       <span className="text-[17px] font-bold tracking-tight text-[var(--text)]">
-        CivicAgent
+        NammaCity
       </span>
-    </div>
-  );
-}
-
-function StatRow({
-  label,
-  detail,
-  value,
-  tone,
-  width,
-  dashed,
-  delay = 0,
-}: {
-  label: string;
-  detail: string;
-  value: string;
-  tone: "danger" | "accent" | "dim";
-  width: number;
-  dashed?: boolean;
-  delay?: number;
-}) {
-  const color =
-    tone === "danger"
-      ? "var(--danger)"
-      : tone === "accent"
-        ? "var(--success)"
-        : "var(--text-faint)";
-
-  return (
-    <div className="rise-in mb-3" style={{ animationDelay: `${delay}ms` }}>
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="text-[12px] font-medium text-[var(--text)]">{label}</span>
-        <span
-          className="font-mono text-[12px] font-semibold tabular-nums"
-          style={{ color }}
-        >
-          {value}
-        </span>
-      </div>
-      <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-3)]">
-        {/* The bar grows to its measured value — the 0.05% vs 34% gap is the
-            argument, so letting it draw makes the contrast land. */}
-        <div
-          className="grow-bar h-full rounded-full"
-          style={{
-            width: `${Math.max(width, 1.5)}%`,
-            animationDelay: `${delay + 120}ms`,
-            background: dashed
-              ? `repeating-linear-gradient(90deg, ${color} 0 5px, transparent 5px 9px)`
-              : color,
-            opacity: dashed ? 0.7 : 1,
-          }}
-        />
-      </div>
-      <p className="mt-1 text-[10.5px] text-[var(--text-faint)]">{detail}</p>
     </div>
   );
 }

@@ -42,14 +42,14 @@ export default function BeforeAfterSlider({ beforeUrl, afterUrl }: { beforeUrl: 
         >
           {/* Thumb circle */}
           <div className="absolute left-1/2 top-1/2 flex h-8 w-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white shadow-[0_2px_10px_rgba(0,0,0,0.3)]">
-            <Icon name="activity" size={14} className="text-gray-500 opacity-50" />
+            <Icon name="activity" size={14} className="text-[var(--text-dim)] opacity-50" />
           </div>
         </div>
       </div>
       
       <figcaption className="mt-1.5 flex items-center justify-between text-[9px] uppercase tracking-wider">
         <span className="text-[var(--text-dim)]">Before</span>
-        <span className="text-emerald-700 font-semibold">After · Citizen Verified</span>
+        <span className="text-[var(--success)] font-semibold">After · Citizen Verified</span>
       </figcaption>
     </div>
   );

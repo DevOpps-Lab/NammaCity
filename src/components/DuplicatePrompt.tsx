@@ -45,9 +45,9 @@ export default function DuplicatePrompt({
                 <span
                   className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold ${
                     c.confidence === "high"
-                      ? "bg-emerald-500/20 text-emerald-700"
+                      ? "bg-[var(--success)]/20 text-[var(--success)]"
                       : c.confidence === "medium"
-                        ? "bg-amber-500/20 text-amber-700"
+                        ? "bg-[var(--warning)]/20 text-[var(--warning)]"
                         : "bg-[var(--surface-3)] text-[var(--text-dim)]"
                   }`}
                 >

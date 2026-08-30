@@ -29,7 +29,7 @@ export default function DemoOnboarding() {
             <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-xl bg-[var(--brand-grad)] text-white shadow-lg">
               <Icon name="shield" size={24} />
             </div>
-            <h2 className="text-lg font-bold tracking-tight">Welcome to the CivicAgent Demo</h2>
+            <h2 className="text-lg font-bold tracking-tight">Welcome to the NammaCity Demo</h2>
             <p className="mt-1 text-sm text-[var(--text-dim)]">
               This is a live, end-to-end sandbox.
             </p>

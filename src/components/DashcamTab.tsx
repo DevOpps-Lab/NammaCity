@@ -269,7 +269,7 @@ export default function DashcamTab({
     if (!boxes.length) return;
     const { width } = ctx.canvas;
     const lineWidth = Math.max(2, width / 240);
-    ctx.strokeStyle = "#059669";
+    ctx.strokeStyle = "#4fae7c";
     ctx.lineWidth = lineWidth;
     ctx.font = `${Math.max(12, Math.round(width / 45))}px sans-serif`;
 
@@ -278,9 +278,9 @@ export default function DashcamTab({
       const label = `pothole ${Math.round(b.confidence * 100)}%`;
       const textW = ctx.measureText(label).width;
       const labelH = Math.max(16, Math.round(width / 32));
-      ctx.fillStyle = "#059669";
+      ctx.fillStyle = "#4fae7c";
       ctx.fillRect(b.x, Math.max(0, b.y - labelH), textW + 8, labelH);
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = "#08130d";
       ctx.fillText(label, b.x + 4, Math.max(labelH - 5, b.y - 5));
     }
   }, []);
@@ -522,7 +522,7 @@ export default function DashcamTab({
             style={{ background: "var(--brand-grad)" }}
           />
           <span
-            className="breathe relative grid h-24 w-24 place-items-center rounded-full text-white shadow-[0_0_40px_rgba(var(--accent-rgb),0.4)]"
+            className="breathe relative grid h-24 w-24 place-items-center rounded-full text-[var(--on-accent)] shadow-[0_0_40px_rgba(var(--accent-rgb),0.4)]"
             style={{ background: "var(--brand-grad)" }}
           >
             <Icon name="video" size={36} />

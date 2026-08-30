@@ -13,11 +13,13 @@ import { now } from "@/lib/demoClock";
  * If the first fails to load we fall through rather than showing a black void.
  */
 const STYLES = [
-  // Positron specifically, not `bright` or `liberty`: it is the lowest-chroma
-  // keyless light basemap available, which is what keeps eight status hues
-  // legible on top of it. Liberty's coloured landuse polygons fight the pins.
-  "https://tiles.openfreemap.org/styles/positron",
-  "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+  // Dark-matter is the dark counterpart of Positron, and it is chosen for the
+  // same reason Positron was: it is the lowest-chroma keyless basemap on offer,
+  // which is what keeps eight status hues legible on top of it. Liberty's
+  // coloured landuse polygons fight the pins, and a LIGHT basemap under this
+  // near-black UI reads as a broken panel rather than a map.
+  "https://tiles.openfreemap.org/styles/dark",
+  "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
 ];
 
 const CHENNAI: [number, number] = [80.2496, 13.0604];

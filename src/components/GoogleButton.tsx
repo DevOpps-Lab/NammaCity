@@ -50,10 +50,13 @@ export default function GoogleButton({
         type="button"
         onClick={signIn}
         disabled={pending}
-        className="group flex h-11 w-full items-center justify-center gap-2.5 rounded-lg border border-[var(--border-strong)] bg-[var(--surface-2)] text-[14px] font-medium text-[var(--text)] transition-all duration-200 hover:border-[var(--text-faint)] hover:bg-[var(--surface-3)] active:scale-[0.99] disabled:opacity-60"
+        className="btn btn-outline w-full font-medium"
       >
         {pending ? (
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--text-faint)] border-t-[var(--text)]" />
+          <span
+            aria-hidden
+            className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--text-faint)] border-t-[var(--text)]"
+          />
         ) : (
           <GoogleMark />
         )}
@@ -63,7 +66,7 @@ export default function GoogleButton({
       {error && (
         <p
           role="alert"
-          className="fade-in mt-2 rounded-lg border border-[var(--warning)]/35 bg-[var(--warning)]/10 px-3 py-2 text-[12px] text-[var(--warning)]"
+          className="fade-in mt-2 rounded-[var(--radius-control)] border border-[var(--warning)]/35 bg-[var(--warning)]/10 px-3 py-2 text-[12px] text-[var(--warning)]"
         >
           {error}
         </p>
