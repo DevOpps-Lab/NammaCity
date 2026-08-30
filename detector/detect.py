@@ -63,6 +63,22 @@ if not models:
 print(f"[detector] ready with {len(models)} model(s): {', '.join(models)}")
 
 
+def _warmup() -> None:
+    """
+    Push one synthetic frame through every model at import.
+
+    Torch initialises lazily, so without this the FIRST real frame pays it:
+    measured 2150 ms against ~150 ms for every frame after. That cost is
+    unavoidable, but it belongs in `systemctl start` where nobody is watching,
+    not in the first second of somebody's dashcam scan.
+    """
+    blank = np.zeros((IMG_SIZE, IMG_SIZE, 3), dtype=np.uint8)
+    t0 = time.perf_counter()
+    for model in models.values():
+        model(blank, conf=CONF_THRESHOLD, imgsz=IMG_SIZE, verbose=False)
+    print(f"[detector] warmed up in {(time.perf_counter() - t0) * 1000:.0f} ms")
+
+
 def iou(a: dict, b: dict) -> float:
     ax2, ay2 = a["x"] + a["width"], a["y"] + a["height"]
     bx2, by2 = b["x"] + b["width"], b["y"] + b["height"]
@@ -130,3 +146,6 @@ def run(frame: np.ndarray) -> tuple[list[dict], dict]:
         per_model[name] = {"raw": count, "ms": round((time.perf_counter() - t0) * 1000)}
 
     return nms(found), per_model
+
+
+_warmup()
