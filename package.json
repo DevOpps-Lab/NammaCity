@@ -13,7 +13,9 @@
     "demo:whatsapp": "node scripts/demo-whatsapp.mjs",
     "demo:ladder": "node scripts/demo-ladder.mjs",
     "verify:detector": "node scripts/verify-detector.mjs",
-    "verify:roi": "npx tsx scripts/verify-roi.ts"
+    "verify:roi": "npx tsx scripts/verify-roi.ts",
+    "verify:admin": "node scripts/verify-admin.mjs",
+    "seed:city": "node scripts/seed-city.mjs"
   },
   "dependencies": {
     "@atproto/api": "^0.20.31",
