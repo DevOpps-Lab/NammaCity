@@ -114,6 +114,39 @@ demonstrate unattended.
 
 ---
 
+## The dashcam detector (optional)
+
+A Python sidecar that runs **two** YOLO models over each frame and unions the
+results. Benchmarked on three dashcam clips, the app's in-browser
+`pothole_yolov8n` and the larger `best.pt` are complementary rather than one
+being better — 9/0/3 against 0/7/11 detections. Ours wins on phone-shot
+footage, theirs on the other two, so the win is in running both, which a server
+can do and a browser cannot without 28 MB of extra download.
+
+```bash
+scp detector/models/*.pt root@<ip>:/opt/civicagent/detector/models/
+ssh root@<ip> 'bash -s' < deploy/setup-detector.sh
+npm run verify:detector
+```
+
+**Weights are not in git** — 28 MB for an optional feature would make every
+clone worse. `setup-detector.sh` reports them missing rather than guessing.
+
+**Optional means optional.** `/api/dashcam/detect` returns 503 `available:false`
+whenever the sidecar is unreachable and the client falls back to the in-browser
+detector it has always used. `npm run verify:detector` stops the service on
+purpose to prove that.
+
+**Port.** The sidecar defaults to 8001 but this box already runs an unrelated
+Flask app there, so the unit sets `DETECTOR_PORT=8002` and setup appends a
+matching `DETECTOR_URL` to `.env.local`. If those two ever disagree the app
+proxies to whatever else is listening — `verify:detector` checks the pair.
+
+Measured on this instance: **~150 ms per frame** for both models, after a
+warmup at startup that keeps the first frame off the 2.1 s torch-init cost.
+
+---
+
 ## Verify before repointing Twilio
 
 Run everything below against the VPS while Vercel is still serving live traffic.
