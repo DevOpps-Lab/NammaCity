@@ -55,3 +55,19 @@ export function slaProgress(createdAt: number, deadline: number, at: number = no
   if (total <= 0) return 1;
   return (at - createdAt) / total;
 }
+
+/**
+ * How long ago something happened, in the compact form a list row can afford.
+ *
+ * A report list without an age is missing the thing the ledger is about: two
+ * rows for the same defect at the same place are indistinguishable without it.
+ */
+export function formatAge(from: number, at: number = now()): string {
+  const mins = Math.max(0, Math.floor((at - from) / 60_000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}

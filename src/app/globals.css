@@ -741,6 +741,26 @@ button {
 /* Buttons. Primary carries the amber; ghost and outline are the quiet paths.
    min-height 44px is the hit-target floor. Named transition properties only
    (better-ui 11: never transition: all). */
+/*
+ * Status pill: the same shape as .chip, in sentence case.
+ *
+ * .chip is uppercase mono with wide tracking, which is right for the one marker
+ * that should catch the eye on a screen and wrong for a marker that repeats on
+ * every row of a list. A list where every row shouts has no emphasis left.
+ */
+.chip-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  padding: 0.1875rem 0.4375rem;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-chip);
+}
+
 .btn {
   display: inline-flex;
   align-items: center;

@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import type { Report } from "@/lib/types";
 import { STATUS_STYLES, isOpen, isBreached } from "@/lib/status";
-import { formatRemaining, now } from "@/lib/demoClock";
+import { categoryLabel } from "@/lib/categories";
+import { formatAge, formatRemaining, now } from "@/lib/demoClock";
 import Icon from "./Icon";
 
 type Filter = "all" | "open" | "breached" | "claimed" | "closed";
@@ -93,30 +94,41 @@ export default function ReportList({
       */}
       <div className="border-b border-[var(--border)]">
         <div className="mx-auto w-full max-w-2xl">
-          {/* verified against claimed, the whole thesis, one figure each */}
+          {/*
+            Verified against claimed, the whole thesis, one figure each.
+
+            These two labels are the only small-caps labels left on this screen.
+            There were six: both of these, the open count, and one on every card
+            for the id, the status and the vote tally. Uppercase mono is how you
+            mark the one thing that matters, and when everything wears it, it
+            marks nothing and the screen reads as generated.
+          */}
           <div className="flex divide-x divide-[var(--border)]">
-            <div className="flex-1 px-4 py-3">
-              <p className="t-micro leading-none text-[var(--success)]">Citizen-verified</p>
+            <div className="flex-1 px-4 py-3.5">
+              <p className="text-[12px] font-medium leading-none text-[var(--success)]">
+                Citizen-verified
+              </p>
               <p className="mt-2 flex items-baseline gap-2">
                 <span className="tnum text-[26px] font-semibold leading-none text-[var(--success)]">
                   {stats.fixRate}%
                 </span>
-                <span className="tnum text-[12px] text-[var(--text-faint)]">
+                <span className="text-[12px] text-[var(--text-faint)]">
                   {stats.verified} closed
                 </span>
               </p>
             </div>
-            <div className="flex-1 px-4 py-3">
-              <p className="t-micro leading-none">Authority-claimed</p>
+            <div className="flex-1 px-4 py-3.5">
+              <p className="text-[12px] font-medium leading-none text-[var(--text-dim)]">
+                Authority-claimed
+              </p>
               <p className="mt-2 flex items-baseline gap-2">
                 <span className="tnum text-[26px] font-semibold leading-none text-[var(--text-dim)]">
                   {stats.claimedRate}%
                 </span>
-                <span className="t-micro leading-none">unverified</span>
+                <span className="text-[12px] text-[var(--text-faint)]">unverified</span>
               </p>
             </div>
           </div>
-
         </div>
       </div>
 
@@ -124,23 +136,36 @@ export default function ReportList({
         <div className="mx-auto w-full max-w-2xl">
           <div className="flex items-baseline justify-between gap-3 px-4 pt-3.5">
             <h1 className="t-title">My reports</h1>
-            <p className="t-micro">{counts.open} open</p>
+            <p className="text-[12px] text-[var(--text-faint)]">{counts.open} open</p>
           </div>
 
-          <div className="flex gap-1.5 overflow-x-auto no-bar px-4 py-3">
+          {/*
+            Five filters do not fit 390px at any sane chip size, so the rail
+            scrolls. What was wrong was not the scrolling but that it was
+            invisible: `no-bar` hides the scrollbar, so "Past SLA" was simply
+            sliced down the middle at the screen edge and looked like a
+            rendering fault. The mask fades the last few pixels instead, which
+            reads as "there is more this way", and snapping makes the flick land
+            on a chip rather than halfway through one.
+          */}
+          <div
+            className="flex snap-x snap-mandatory gap-1.5 overflow-x-auto no-bar px-4 py-3 [mask-image:linear-gradient(to_right,#000_calc(100%-32px),transparent)] sm:[mask-image:none]"
+          >
             {FILTERS.map((f) => (
               <button
                 key={f.key}
                 onClick={() => setFilter(f.key)}
                 aria-pressed={filter === f.key}
-                className={`shrink-0 rounded-[var(--radius-chip)] px-3 py-2 text-[12px] font-semibold transition-colors ${
+                className={`shrink-0 snap-start rounded-[var(--radius-chip)] px-2.5 py-1.5 text-[12px] transition-colors ${
                   filter === f.key
-                    ? "bg-[var(--accent)] text-[var(--on-accent)]"
+                    ? "bg-[var(--accent)] font-semibold text-[var(--on-accent)]"
                     : "border border-[var(--border)] font-medium text-[var(--text-dim)] hover:border-[var(--border-strong)]"
                 }`}
               >
                 {f.label}
-                <span className="tnum ml-1.5 opacity-70">{counts[f.key]}</span>
+                {counts[f.key] > 0 && (
+                  <span className="tnum ml-1.5 opacity-70">{counts[f.key]}</span>
+                )}
               </button>
             ))}
           </div>
@@ -178,26 +203,34 @@ export default function ReportList({
                     style={{ animationDelay: `${Math.min(i * 40, 400)}ms`, borderLeftColor: rule }}
                     className="enter w-full rounded-[var(--radius-card)] border border-[var(--border)] border-l-[3px] bg-[var(--surface)] p-3.5 text-left shadow-[var(--shadow-1)] transition-colors hover:border-[var(--border-strong)]"
                   >
-                    <div className="flex items-center gap-2">
-                      {claim && <Icon name="alert" size={13} className="text-[var(--accent)]" />}
-                      <p
-                        className="t-micro leading-none"
-                        style={{ color: style.color, letterSpacing: "0.09em" }}
+                    {/* The defect leads. It is what the row is about, and it
+                        used to sit on line two behind an id and a status code. */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="t-head truncate">{categoryLabel(r.category)}</p>
+                        <p className="mt-0.5 truncate text-[13px] text-[var(--text-dim)]">
+                          {r.place}
+                        </p>
+                      </div>
+                      <span
+                        className="chip-status shrink-0"
+                        style={{
+                          color: style.color,
+                          borderColor: `color-mix(in srgb, ${style.color} 45%, transparent)`,
+                          background: `color-mix(in srgb, ${style.color} 12%, transparent)`,
+                        }}
                       >
-                        {r.id} · {style.label}
-                      </p>
+                        {claim && <Icon name="alert" size={11} />}
+                        {style.short ?? style.label}
+                      </span>
                     </div>
 
-                    <p className="t-head mt-1.5">
-                      {r.category.replace(/_/g, " ")} · {r.place}
-                    </p>
-
                     {claim ? (
-                      <p className="t-sm mt-1.5 text-[var(--text-dim)]">
-                        Marked fixed by the authority. Nobody has checked.
+                      <p className="t-sm mt-2.5 text-[var(--text-dim)]">
+                        Nobody has checked this. Only you can confirm it.
                       </p>
                     ) : !closed ? (
-                      <p className="mt-2 flex items-baseline gap-2">
+                      <p className="mt-2.5 flex items-baseline gap-2">
                         <span
                           className="tnum text-[22px] font-semibold leading-none"
                           style={{ color: overdue ? "var(--danger)" : "var(--text-dim)" }}
@@ -210,17 +243,32 @@ export default function ReportList({
                       </p>
                     ) : null}
 
-                    <div className="mt-2.5 flex items-center gap-3 border-t border-[var(--border)] pt-2.5">
-                      <span className="t-micro leading-none">
-                        {r.supporters} {r.supporters === 1 ? "voice" : "voices"}
-                      </span>
+                    {/* Metadata, in the order it is actually wanted, and only
+                        when it exists. "0 voices" on every row was noise, and
+                        without an age two reports of the same defect on the
+                        same street were impossible to tell apart. */}
+                    <div className="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[12px] text-[var(--text-faint)]">
+                      <span className="tnum">{r.id}</span>
+                      <span aria-hidden>·</span>
+                      <span>{formatAge(r.createdAt, t)}</span>
+                      {r.supporters > 0 && (
+                        <>
+                          <span aria-hidden>·</span>
+                          <span>
+                            {r.supporters} {r.supporters === 1 ? "voice" : "voices"}
+                          </span>
+                        </>
+                      )}
                       {msgs > 0 && (
-                        <span className="t-micro leading-none text-[var(--accent)]">
-                          {msgs} message{msgs === 1 ? "" : "s"}
-                        </span>
+                        <>
+                          <span aria-hidden>·</span>
+                          <span className="text-[var(--text-dim)]">
+                            {msgs} repl{msgs === 1 ? "y" : "ies"}
+                          </span>
+                        </>
                       )}
                       {claim && (
-                        <span className="ml-auto text-[12px] font-bold text-[var(--accent)]">
+                        <span className="ml-auto font-semibold text-[var(--accent)]">
                           Verify with a photo &rarr;
                         </span>
                       )}

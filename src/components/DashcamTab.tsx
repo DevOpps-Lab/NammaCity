@@ -108,8 +108,8 @@ interface ScanProgress {
  *
  * Named here instead of repeated inline because the design system locks radius
  * to three steps and type to a 12px floor — values easy to drift from when the
- * next control is added. `--radius-card` and `t-sm`/`t-micro` are the shared
- * vocabulary from globals.css; nothing here invents a size.
+ * next control is added. `--radius-card` and `t-sm` are the shared vocabulary
+ * from globals.css; nothing here invents a size.
  */
 const CONTROL_CARD =
   "rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--surface)] p-3.5 shadow-[var(--shadow-1)]";
@@ -678,7 +678,7 @@ export default function DashcamTab({
           <div className="mt-3.5 grid gap-3.5 border-t border-[var(--border)] pt-3.5">
             <label className="block">
               <span className="flex items-baseline justify-between gap-3">
-                <span className="t-micro leading-none">Horizon</span>
+                <span className="text-[12px] font-medium leading-none text-[var(--text-dim)]">Horizon</span>
                 <span className="tnum text-[12px] text-[var(--text-dim)]">
                   {Math.round(roi.horizon * 100)}% down the frame
                 </span>
@@ -695,7 +695,7 @@ export default function DashcamTab({
             </label>
             <label className="block">
               <span className="flex items-baseline justify-between gap-3">
-                <span className="t-micro leading-none">Width at the horizon</span>
+                <span className="text-[12px] font-medium leading-none text-[var(--text-dim)]">Width at the horizon</span>
                 <span className="tnum text-[12px] text-[var(--text-dim)]">
                   {Math.round(roi.topHalf * 200)}%
                 </span>
@@ -723,7 +723,7 @@ export default function DashcamTab({
           confirmation downstream, so leaning toward recall is cheap. */}
       <label className={CONTROL_CARD + " mt-3 block"}>
         <span className="flex items-baseline justify-between gap-3">
-          <span className="t-micro leading-none">Sensitivity</span>
+          <span className="text-[12px] font-medium leading-none text-[var(--text-dim)]">Sensitivity</span>
           <span className="tnum text-[12px] text-[var(--text-dim)]">
             {Math.round(sensitivity * 100)}%
           </span>

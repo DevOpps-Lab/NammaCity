@@ -31,6 +31,8 @@ import type { ReportStatus } from "./types";
 
 export interface StatusStyle {
   label: string;
+  /** Compact form for dense lists, where the full label would wrap. */
+  short?: string;
   color: string;
   /** hollow = dashed outline, no fill: a claim, not a confirmation */
   hollow: boolean;
@@ -83,6 +85,7 @@ export const STATUS_STYLES: Record<ReportStatus, StatusStyle> = {
   },
   claims_done: {
     label: "Claimed fixed, unverified",
+    short: "Claimed fixed",
     color: "#9aa8a0",
     hollow: true,
     pulse: false,
