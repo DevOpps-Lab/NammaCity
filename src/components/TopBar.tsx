@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import Icon from "./Icon";
 import UserMenu from "./UserMenu";
 
@@ -12,6 +13,8 @@ interface Props {
     claimedRate: number;
   };
   demo: boolean;
+  /** Shows the city console link. Decides nothing; Postgres re-checks the role. */
+  isGov: boolean;
   outboxCount: number;
   displayName: string;
   email: string;
@@ -28,6 +31,7 @@ interface Props {
 export default function TopBar({
   stats,
   demo,
+  isGov,
   outboxCount,
   displayName,
   email,
@@ -89,6 +93,21 @@ export default function TopBar({
           >
             {stats.fixRate}%
           </p>
+
+          {/* A government account otherwise lands on the citizen app after
+              signing in with no way to reach its own console but by typing the
+              URL. Rendered only where it works, for the same reason the server
+              detector checkbox is: an option that does nothing is worse than no
+              option. */}
+          {isGov && (
+            <Link
+              href="/admin"
+              className="press flex h-10 items-center gap-1.5 rounded-[var(--radius-control)] border border-[var(--accent)] px-2.5 text-[12px] font-semibold text-[var(--accent)] transition-colors hover:bg-[var(--accent)] hover:text-[var(--on-accent)]"
+            >
+              <Icon name="activity" size={15} />
+              <span className="hidden sm:inline">City console</span>
+            </Link>
+          )}
 
           <IconBtn label="Open outbox" onClick={onOpenOutbox} badge={outboxCount}>
             <Icon name="inbox" size={17} />

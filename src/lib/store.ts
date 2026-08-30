@@ -31,6 +31,15 @@ export function useCivicStore() {
   const [user, setUser] = useState<User | null>(null);
   const [displayName, setDisplayName] = useState<string>("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  /**
+   * Whether this account may open the city console.
+   *
+   * Purely so the link can be shown; it decides nothing. Every civic_admin_*
+   * function re-checks the role in Postgres and raises, so setting this true in
+   * a browser devtools console gets you a visible link to a page that refuses
+   * you and six functions that refuse you again.
+   */
+  const [isGov, setIsGov] = useState(false);
   const [reports, setReports] = useState<Report[]>([]);
   const [outbox, setOutbox] = useState<OutboxItem[]>([]);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
@@ -118,14 +127,15 @@ export function useCivicStore() {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("display_name, avatar_url")
+        .select("display_name, avatar_url, role")
         .eq("id", u.id)
         .maybeSingle();
 
       if (profile) {
         setDisplayName(profile.display_name ?? "");
         setAvatarUrl(profile.avatar_url ?? null);
-        }
+        setIsGov((profile as { role?: string }).role === "gov");
+      }
 
       // Seeding disabled: accounts start EMPTY so the demo shows only real,
       // end-to-end activity (file -> email -> reply -> verify -> escalate ->
@@ -722,6 +732,7 @@ export function useCivicStore() {
     user,
     displayName,
     avatarUrl,
+    isGov,
     loading,
     error,
     dismissError: useCallback(() => setError(null), []),

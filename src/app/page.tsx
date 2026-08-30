@@ -136,6 +136,7 @@ export default function Home() {
       <TopBar
         stats={stats}
         demo={store.demo}
+        isGov={store.isGov}
         outboxCount={store.outbox.length}
         displayName={store.displayName}
         email={store.user?.email ?? ""}
