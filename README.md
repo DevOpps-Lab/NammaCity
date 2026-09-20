@@ -6,7 +6,7 @@ Photograph a pothole or broken drain. Agents identify the responsible ward and
 agencies, file against **all** plausibly-responsible bodies at once, run a clock
 against the authority's **own published** service standard, and escalate publicly
 when that standard is missed. **A report closes only on a verified after-photo** —
-never on an authority's word alone.
+never on an authority's word alone. 
 
 ```bash
 npm run dev              # http://localhost:3000
